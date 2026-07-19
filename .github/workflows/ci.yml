@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: luma
+          POSTGRES_PASSWORD: luma
+          POSTGRES_DB: luma
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Установка зависимостей
+        run: pip install -r requirements.txt
+
+      - name: Проверка импортов
+        env:
+          BOT_TOKEN: test
+          DATABASE_URL: postgresql+asyncpg://luma:luma@localhost:5432/luma
+          REDIS_URL: redis://localhost:6379/0
+        run: python -c "from bot.app import create_bot, create_dispatcher; from api.main import app"

@@ -1,0 +1,15 @@
+aiogram>=3.29.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+sqlalchemy[asyncio]>=2.0.36
+asyncpg>=0.30.0
+alembic>=1.14.0
+redis>=5.2.0
+python-dotenv>=1.0.0
+pydantic-settings>=2.6.0
+httpx>=0.28.0
+openai>=1.57.0
+arq>=0.26.0
+aiofiles>=24.1.0
+python-multipart>=0.0.17
+opencv-python-headless>=4.10.0

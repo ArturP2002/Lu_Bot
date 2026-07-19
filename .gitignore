@@ -1,0 +1,11 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.idea/
+*.db
+test.db
+admin-miniapp/node_modules/
+admin-miniapp/dist/
+.DS_Store
