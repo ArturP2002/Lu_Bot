@@ -33,6 +33,7 @@ from bot.texts.ui_labels import service_err, tx
 from bot.utils.messaging import (
     cleanup_user_and_prompt,
     edit_or_send,
+    resolve_photo_file_id,
     safe_delete,
     safe_edit_text,
     send_ui,
@@ -59,10 +60,11 @@ async def show_profile(
 ) -> None:
   text = format_own_profile(user)
   kb = profile_kb(user.disabled, lang_of(user))
+  photo_file_id = await resolve_photo_file_id(message.bot, user)
   await edit_or_send(
     message,
     text,
-    photo_file_id=user.photo_file_id,
+    photo_file_id=photo_file_id,
     reply_markup=kb,
     redis=redis,
     edit=edit,

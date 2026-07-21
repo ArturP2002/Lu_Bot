@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from aiogram import Bot
@@ -17,6 +18,15 @@ from redis.asyncio import Redis
 
 UI_MSG_KEY = "ui:msg:{chat_id}"
 UI_MSG_TTL = 60 * 60 * 24 * 7  # 7 дней
+
+logger = logging.getLogger(__name__)
+
+
+def _is_invalid_file_id_error(exc: Exception) -> bool:
+  if not isinstance(exc, TelegramBadRequest):
+    return False
+  msg = str(exc).lower()
+  return "wrong file identifier" in msg or "http url specified" in msg
 
 
 def _ui_key(chat_id: int) -> str:
@@ -96,7 +106,14 @@ async def send_ui(
   if parse_mode is not None:
     kwargs["parse_mode"] = parse_mode
   if photo_file_id:
-    sent = await message.answer_photo(photo_file_id, caption=text, **kwargs)
+    try:
+      sent = await message.answer_photo(photo_file_id, caption=text, **kwargs)
+    except TelegramBadRequest as e:
+      if _is_invalid_file_id_error(e):
+        logger.warning("Invalid photo file_id, fallback to text: %s...", photo_file_id[:24])
+        sent = await message.answer(text, **kwargs)
+      else:
+        raise
   else:
     sent = await message.answer(text, **kwargs)
   if track:
@@ -132,6 +149,22 @@ async def strip_inline_keyboard(message: Message) -> None:
     await message.edit_reply_markup(reply_markup=None)
   except Exception:
     pass
+
+
+async def resolve_photo_file_id(bot: Bot, user) -> str | None:
+  """Проверить file_id фото; сбросить в БД, если он недействителен для этого бота."""
+  fid = getattr(user, "photo_file_id", None)
+  if not fid:
+    return None
+  try:
+    await bot.get_file(fid)
+    return fid
+  except TelegramBadRequest as e:
+    if _is_invalid_file_id_error(e):
+      logger.warning("Clearing invalid photo_file_id for user %s", getattr(user, "id", "?"))
+      user.photo_file_id = None
+      return None
+    raise
 
 
 async def safe_edit_text(
@@ -186,12 +219,16 @@ async def safe_edit_media(
   try:
     if photo_file_id:
       media = InputMediaPhoto(media=photo_file_id, caption=text, parse_mode=parse_mode)
-      await message.edit_media(media=media, reply_markup=reply_markup)
-      return await _track(redis, message)  # type: ignore[return-value]
+      try:
+        await message.edit_media(media=media, reply_markup=reply_markup)
+        return await _track(redis, message)  # type: ignore[return-value]
+      except TelegramBadRequest as e:
+        if not _is_invalid_file_id_error(e):
+          raise
+        logger.warning("Invalid photo file_id on edit, fallback to text: %s...", photo_file_id[:24])
+        photo_file_id = None
 
-    # Нужен текст без фото
     if message.photo:
-      # Нельзя убрать фото через edit — пересоздаём
       await safe_delete(message)
       return await send_ui(message, text, reply_markup=reply_markup, redis=redis, parse_mode=parse_mode)
 
