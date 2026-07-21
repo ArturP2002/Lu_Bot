@@ -75,7 +75,7 @@ async def cmd_start(
         from bot.handlers.events import open_event_by_id
         from bot.handlers.menu import send_menu
 
-        await send_menu(message, user, redis=redis)
+        await send_menu(message, user, redis=redis, replace=True)
         try:
             event_id = int(payload.replace("event_", "", 1))
         except ValueError:
@@ -87,7 +87,7 @@ async def cmd_start(
     if payload.startswith("evgroup_") and user.profile_completed:
         from bot.handlers.menu import send_menu
 
-        await send_menu(message, user, redis=redis)
+        await send_menu(message, user, redis=redis, replace=True)
         await send_ui(
             message,
             tx(user, "EVGROUP_HINT"),
@@ -98,7 +98,7 @@ async def cmd_start(
     if user.profile_completed:
         from bot.handlers.menu import send_menu
 
-        await send_menu(message, user, redis=redis)
+        await send_menu(message, user, redis=redis, replace=True)
         return
 
     if payload.startswith("event_"):

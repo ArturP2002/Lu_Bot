@@ -83,10 +83,25 @@ class ThrottleMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
+        from aiogram.types import CallbackQuery, Message
+
+        from bot.texts.ui_labels import all_main_menu_texts
+
         from_user = data.get("tg_user")
         if from_user:
-            key = f"throttle:{from_user.id}"
-            if await self.redis.exists(key):
-                return None
-            await self.redis.set(key, "1", px=max(1, int(self.rate * 1000)))
+            skip = False
+            if isinstance(event, CallbackQuery):
+                skip = True
+            elif isinstance(event, Message):
+                text = (event.text or "").strip()
+                if text.startswith("/"):
+                    skip = True
+                elif text in all_main_menu_texts():
+                    skip = True
+
+            if not skip:
+                key = f"throttle:{from_user.id}"
+                if await self.redis.exists(key):
+                    return None
+                await self.redis.set(key, "1", px=max(1, int(self.rate * 1000)))
         return await handler(event, data)

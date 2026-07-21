@@ -715,12 +715,33 @@ def tx(lang_or_user, key: str, **kwargs) -> str:
 
 def all_menu_labels(action: str) -> set[str]:
     row = MENU.get(action) or {}
-    return set(row.values())
+    labels = set(row.values())
+    labels |= _MENU_LEGACY.get(action, set())
+    return labels
+
+
+def all_main_menu_texts() -> set[str]:
+    """Все подписи reply-кнопок главного меню (для роутинга и throttle)."""
+    texts: set[str] = set()
+    for action in ("rate", "events", "profile", "goals", "luma", "menu"):
+        texts |= all_menu_labels(action)
+    return texts
+
+
+# Старые подписи без эмодзи — пока у пользователей не обновилась клавиатура
+_MENU_LEGACY: dict[str, set[str]] = {
+    "rate": {"Оценивать", "Ацэньваць", "Оцінювати", "Бағалау"},
+    "events": {"Тусовки", "Тусоўкі", "Тусовкалар"},
+    "profile": {"Профиль", "Профіль"},
+    "goals": {"Цели", "Мэты", "Цілі", "Мақсаттар"},
+    "luma": {"Лума"},
+    "menu": set(),
+}
 
 
 def resolve_menu_action(text: str) -> str | None:
     for action, row in MENU.items():
-        if text in row.values():
+        if text in row.values() or text in _MENU_LEGACY.get(action, set()):
             return action
     return None
 

@@ -89,7 +89,7 @@ async def _start_prompt(
 
 
 @router.callback_query(F.data == "prof:age")
-async def prof_age_start(callback: CallbackQuery, state: FSMContext, redis: Redis) -> None:
+async def prof_age_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
   await _start_prompt(callback, state, ProfileEdit.age, t(user, "REG_ASK_AGE"), redis)
 
 
@@ -203,7 +203,7 @@ async def prof_city_save(message: Message, state: FSMContext, user: User, redis:
 
 
 @router.callback_query(F.data == "prof:bio")
-async def prof_bio_start(callback: CallbackQuery, state: FSMContext, redis: Redis) -> None:
+async def prof_bio_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
   await _start_prompt(callback, state, ProfileEdit.bio, t(user, "REG_ASK_BIO"), redis)
 
 
@@ -283,7 +283,7 @@ async def prof_disable(callback: CallbackQuery, user: User, redis: Redis) -> Non
 
 
 @router.callback_query(F.data.in_({"prof:dis:no", "prof:dis:no2", "prof:dis:no3"}))
-async def prof_disable_no(callback: CallbackQuery, redis: Redis) -> None:
+async def prof_disable_no(callback: CallbackQuery, user: User, redis: Redis) -> None:
   await safe_edit_text(callback.message, t(user, "PROFILE_DISABLED_CELEBRATE"), redis=redis)
   await callback.answer()
 
