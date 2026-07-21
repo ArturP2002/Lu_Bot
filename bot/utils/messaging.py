@@ -26,7 +26,14 @@ def _is_invalid_file_id_error(exc: Exception) -> bool:
   if not isinstance(exc, TelegramBadRequest):
     return False
   msg = str(exc).lower()
-  return "wrong file identifier" in msg or "http url specified" in msg
+  markers = (
+    "wrong file identifier",
+    "wrong file_id",
+    "http url specified",
+    "file is temporarily unavailable",
+    "file not found",
+  )
+  return any(marker in msg for marker in markers)
 
 
 def _ui_key(chat_id: int) -> str:
@@ -160,11 +167,20 @@ async def resolve_photo_file_id(bot: Bot, user) -> str | None:
     await bot.get_file(fid)
     return fid
   except TelegramBadRequest as e:
-    if _is_invalid_file_id_error(e):
-      logger.warning("Clearing invalid photo_file_id for user %s", getattr(user, "id", "?"))
-      user.photo_file_id = None
-      return None
-    raise
+    logger.warning(
+      "Clearing invalid photo_file_id for user %s: %s",
+      getattr(user, "id", "?"),
+      e,
+    )
+    user.photo_file_id = None
+    return None
+  except Exception as e:
+    logger.warning(
+      "Cannot verify photo_file_id for user %s, sending without photo: %s",
+      getattr(user, "id", "?"),
+      e,
+    )
+    return None
 
 
 async def safe_edit_text(
