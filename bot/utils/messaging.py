@@ -16,7 +16,7 @@ from aiogram.types import (
 )
 from redis.asyncio import Redis
 
-from bot.utils.reply_menu import mark_menu_kb_attached
+from bot.utils.menu_kb_flag import mark_menu_kb_attached
 
 UI_MSG_KEY = "ui:msg:{chat_id}"
 UI_MSG_TTL = 60 * 60 * 24 * 7  # 7 дней

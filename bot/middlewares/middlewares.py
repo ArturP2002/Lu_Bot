@@ -118,11 +118,8 @@ class PinMainMenuMiddleware(BaseMiddleware):
     ) -> Any:
         from aiogram.types import CallbackQuery, Message
 
-        from bot.utils.reply_menu import (
-            consume_menu_kb_attached,
-            pin_main_menu,
-            should_pin_main_menu,
-        )
+from bot.utils.menu_kb_flag import consume_menu_kb_attached
+        from bot.utils.reply_menu import pin_main_menu, should_pin_main_menu
 
         result = await handler(event, data)
 

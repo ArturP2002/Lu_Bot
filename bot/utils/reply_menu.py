@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from contextvars import ContextVar
 
 from aiogram import Bot
 from aiogram.fsm.context import FSMContext
@@ -11,7 +10,6 @@ from redis.asyncio import Redis
 
 from bot.keyboards.keyboards import limited_menu_kb, main_menu_kb
 from bot.texts.i18n import lang_of
-from bot.utils.messaging import safe_delete
 from models import User
 
 logger = logging.getLogger(__name__)
@@ -28,20 +26,6 @@ _PROFILE_EDIT_REPLY_STATES = frozenset(
         "ProfileEdit:visible_to",
     }
 )
-
-_menu_kb_attached: ContextVar[bool] = ContextVar("_menu_kb_attached", default=False)
-
-
-def mark_menu_kb_attached() -> None:
-    """Handler уже отправил ReplyKeyboardMarkup — не дублировать pin."""
-    _menu_kb_attached.set(True)
-
-
-def consume_menu_kb_attached() -> bool:
-    if _menu_kb_attached.get():
-        _menu_kb_attached.set(False)
-        return True
-    return False
 
 
 async def should_pin_main_menu(state: FSMContext | None) -> bool:
@@ -88,6 +72,8 @@ async def pin_main_menu(
         return
 
     if redis is not None:
+        from bot.utils.messaging import safe_delete
+
         old_raw = await redis.get(anchor_key)
         await redis.set(anchor_key, str(new_msg.message_id), ex=MENU_ANCHOR_TTL)
         if old_raw:
