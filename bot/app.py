@@ -10,7 +10,13 @@ from aiogram.types import BotCommand, BotCommandScopeDefault, MenuButtonCommands
 from redis.asyncio import Redis
 
 from bot.handlers import admin, events, goals, luma, menu, payments, profile, rating, registration
-from bot.middlewares.middlewares import DatabaseMiddleware, RedisMiddleware, ThrottleMiddleware, UserMiddleware
+from bot.middlewares.middlewares import (
+  DatabaseMiddleware,
+  PinMainMenuMiddleware,
+  RedisMiddleware,
+  ThrottleMiddleware,
+  UserMiddleware,
+)
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -40,6 +46,7 @@ def create_dispatcher(redis: Redis) -> Dispatcher:
   dp.update.middleware(RedisMiddleware(redis))
   dp.update.middleware(UserMiddleware())
   dp.update.middleware(ThrottleMiddleware(redis))
+  dp.update.middleware(PinMainMenuMiddleware())
 
   dp.include_router(registration.router)
   dp.include_router(admin.router)

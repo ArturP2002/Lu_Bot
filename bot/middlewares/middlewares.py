@@ -105,3 +105,40 @@ class ThrottleMiddleware(BaseMiddleware):
                     return None
                 await self.redis.set(key, "1", px=max(1, int(self.rate * 1000)))
         return await handler(event, data)
+
+
+class PinMainMenuMiddleware(BaseMiddleware):
+    """Восстанавливает reply-клавиатуру главного меню после inline-экранов."""
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
+        from aiogram.types import CallbackQuery, Message
+
+        from bot.utils.reply_menu import pin_main_menu, should_pin_main_menu
+
+        result = await handler(event, data)
+
+        user = data.get("user")
+        if not user or not getattr(user, "profile_completed", False):
+            return result
+
+        state = data.get("state")
+        if state is not None and not await should_pin_main_menu(state):
+            return result
+
+        bot = None
+        chat_id = None
+        if isinstance(event, Message):
+            bot = event.bot
+            chat_id = event.chat.id
+        elif isinstance(event, CallbackQuery) and event.message:
+            bot = event.bot
+            chat_id = event.message.chat.id
+
+        if bot and chat_id:
+            await pin_main_menu(bot, chat_id, user)
+        return result
