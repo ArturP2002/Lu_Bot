@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from html import escape
+
 from models import User
 from services.user_service import is_premium
 from bot.texts.i18n import lang_of, normalize_lang
@@ -43,18 +45,18 @@ def format_own_profile(user: User, lang_or_user=None) -> str:
         else lang_of(lang_or_user or user)
     )
     goal = user.goal
-    goal_text = tx(lang, "PROFILE_GOAL_OWN", title=goal.title) if goal else "—"
+    goal_text = tx(lang, "PROFILE_GOAL_OWN", title=escape(goal.title)) if goal else "—"
     premium = " ⭐" if is_premium(user) else ""
     verified = " ✅" if user.verified else ""
 
     return tx(
         lang,
         "PROFILE_OWN",
-        name=user.display_name,
+        name=escape(user.display_name or "—"),
         age=years_label(user.age, lang),
         premium=premium,
         verified=verified,
-        bio=user.bio or "",
+        bio=escape(user.bio or ""),
         sparks=user.sparks_balance,
         rating=user.rating_avg,
         rated=user.rating_count,
@@ -64,7 +66,7 @@ def format_own_profile(user: User, lang_or_user=None) -> str:
         gender=_attr_label("GENDER", user.gender, lang),
         seeking=_attr_label("SEEKING", user.seeking, lang),
         visible=_attr_label("VISIBLE", user.visible_to, lang),
-        city=user.city or "—",
+        city=escape(user.city or "—"),
     )
 
 
