@@ -33,7 +33,6 @@ def main_menu_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
             [KeyboardButton(text=lbl(lang, "luma", "menu"))],
         ],
         resize_keyboard=True,
-        is_persistent=True,
     )
 
 
@@ -42,7 +41,6 @@ def limited_menu_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=lbl(lang, "profile", "menu"))]],
         resize_keyboard=True,
-        is_persistent=True,
     )
 
 
