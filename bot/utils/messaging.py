@@ -89,8 +89,9 @@ async def send_ui(
   reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | None = None,
   redis: Redis | None = None,
   parse_mode: str | None = None,
+  track: bool = True,
 ) -> Message:
-  """Отправить новый UI-экран и запомнить message_id."""
+  """Отправить новый UI-экран и опционально запомнить message_id."""
   kwargs: dict[str, Any] = {"reply_markup": reply_markup}
   if parse_mode is not None:
     kwargs["parse_mode"] = parse_mode
@@ -98,7 +99,39 @@ async def send_ui(
     sent = await message.answer_photo(photo_file_id, caption=text, **kwargs)
   else:
     sent = await message.answer(text, **kwargs)
-  return await _track(redis, sent)  # type: ignore[return-value]
+  if track:
+    return await _track(redis, sent)  # type: ignore[return-value]
+  return sent
+
+
+async def replace_ui(
+  message: Message,
+  text: str,
+  *,
+  photo_file_id: str | None = None,
+  reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | None = None,
+  redis: Redis | None = None,
+  parse_mode: str | None = None,
+) -> Message:
+  """Заменить текущий UI-экран (удалить предыдущий и отправить новый)."""
+  await delete_previous_ui(message.bot, redis, message.chat.id)
+  return await send_ui(
+    message,
+    text,
+    photo_file_id=photo_file_id,
+    reply_markup=reply_markup,
+    redis=redis,
+    parse_mode=parse_mode,
+    track=True,
+  )
+
+
+async def strip_inline_keyboard(message: Message) -> None:
+  """Убрать inline-кнопки, оставив текст/фото сообщения."""
+  try:
+    await message.edit_reply_markup(reply_markup=None)
+  except Exception:
+    pass
 
 
 async def safe_edit_text(
@@ -190,8 +223,12 @@ async def edit_or_send(
   redis: Redis | None = None,
   parse_mode: str | None = None,
   edit: bool = True,
+  track: bool = True,
+  finalize_previous: bool = False,
 ) -> Message:
   """Edit текущего сообщения или отправить новый UI-экран."""
+  if finalize_previous and message.from_user and message.from_user.is_bot:
+    await strip_inline_keyboard(message)
   if edit and message.from_user and message.from_user.is_bot:
     return await safe_edit_media(
       message,
@@ -208,6 +245,7 @@ async def edit_or_send(
     reply_markup=reply_markup,
     redis=redis,
     parse_mode=parse_mode,
+    track=track,
   )
 
 

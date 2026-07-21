@@ -25,7 +25,6 @@ from bot.keyboards.keyboards import (
     seeking_kb,
     sparks_action_kb,
     visible_kb,
-    withdraw_method_kb,
 )
 from bot.states.states import ProfileEdit, SparksFlow, VerificationFlow
 from bot.texts.formatters import format_own_profile
@@ -369,24 +368,28 @@ async def ref_blogger(callback: CallbackQuery, user: User, session: AsyncSession
 
 
 @router.callback_query(F.data == "prof:withdraw")
-async def prof_withdraw(callback: CallbackQuery, user: User, redis: Redis) -> None:
-  await safe_edit_text(
+async def prof_withdraw(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  await state.set_state(SparksFlow.amount)
+  prompt = await safe_edit_text(
     callback.message,
-    f"{t(user, 'WITHDRAW_INFO')}\n\n{tx(user, 'WITHDRAW_CHOOSE_METHOD')}",
-    reply_markup=withdraw_method_kb(lang_of(user)),
+    f"{t(user, 'WITHDRAW_INFO')}\n\n{tx(user, 'WITHDRAW_AMOUNT')}",
     redis=redis,
+  )
+  await state.update_data(
+    flow="withdraw",
+    withdraw_method="stars",
+    prompt_message_id=prompt.message_id if prompt else callback.message.message_id,
   )
   await callback.answer()
 
 
 @router.callback_query(F.data.startswith("wd:method:"))
 async def withdraw_method_chosen(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
-  method = callback.data.split(":")[-1]
   await state.set_state(SparksFlow.amount)
   prompt = await safe_edit_text(callback.message, tx(user, "WITHDRAW_AMOUNT"), redis=redis)
   await state.update_data(
     flow="withdraw",
-    withdraw_method=method,
+    withdraw_method="stars",
     prompt_message_id=prompt.message_id if prompt else callback.message.message_id,
   )
   await callback.answer()
@@ -398,7 +401,7 @@ async def prof_sparks_amount(callback: CallbackQuery, state: FSMContext, user: U
   prompt = await safe_edit_text(callback.message, tx(user, "WITHDRAW_AMOUNT"), redis=redis)
   await state.update_data(
     flow="withdraw",
-    withdraw_method="requisites",
+    withdraw_method="stars",
     prompt_message_id=prompt.message_id if prompt else callback.message.message_id,
   )
   await callback.answer()
@@ -430,27 +433,11 @@ async def sparks_amount(
       await message.answer(t(user, "ERR_NOT_ENOUGH_SPARKS"))
       return
 
-    method = data.get("withdraw_method") or "requisites"
+    method = "stars"
     await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
-
-    if method == "stars":
-      await state.clear()
-      await _create_withdraw_and_maybe_pay(
-        message, user, session, redis, amount=amount, method="stars", requisites=None
-      )
-      return
-
-    await state.set_state(SparksFlow.requisites)
-    prompt = await send_ui(
-      message,
-      tx(user, "WITHDRAW_ASK_REQUISITES", amount=amount),
-      redis=redis,
-    )
-    await state.update_data(
-      flow="withdraw",
-      withdraw_method="requisites",
-      amount=amount,
-      prompt_message_id=prompt.message_id if prompt else None,
+    await state.clear()
+    await _create_withdraw_and_maybe_pay(
+      message, user, session, redis, amount=amount, method=method, requisites=None
     )
     return
 

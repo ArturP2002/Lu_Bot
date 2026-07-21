@@ -14,11 +14,11 @@ from bot.texts.ui_labels import lbl, tx
 from config import get_settings
 
 # Главное меню (русские алиасы для обратной совместимости)
-BTN_RATE = "Оценивать"
-BTN_EVENTS = "Тусовки"
-BTN_PROFILE = "Профиль"
-BTN_GOALS = "Цели"
-BTN_LUMA = "Лума"
+BTN_RATE = "Оценивать❤️"
+BTN_EVENTS = "Тусовки🥳"
+BTN_PROFILE = "Профиль👤"
+BTN_GOALS = "Цели✨"
+BTN_LUMA = "Лума🤵🏼‍♀️"
 BTN_MENU = "Меню"
 
 MAIN_MENU_BUTTONS = [BTN_RATE, BTN_EVENTS, BTN_PROFILE, BTN_GOALS, BTN_LUMA]
@@ -42,6 +42,7 @@ def limited_menu_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=lbl(lang, "profile", "menu"))]],
         resize_keyboard=True,
+        is_persistent=True,
     )
 
 

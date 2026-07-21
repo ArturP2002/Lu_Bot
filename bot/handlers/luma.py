@@ -96,6 +96,7 @@ async def show_luma_person_card(
   *,
   redis: Redis | None = None,
   edit: bool = False,
+  finalize_previous: bool = False,
 ) -> None:
   text = format_other_profile(profile, lang_of(viewer))
   kb = rate_card_kb(profile.id, lang_of(viewer))
@@ -106,6 +107,8 @@ async def show_luma_person_card(
     reply_markup=kb,
     redis=redis,
     edit=edit,
+    track=False,
+    finalize_previous=finalize_previous,
   )
 
 
@@ -227,6 +230,7 @@ async def try_show_next_luma_person(
   exclude: list[int] | None = None,
   *,
   edit: bool = True,
+  finalize_previous: bool = False,
 ) -> bool:
   """Если активен просмотр выдачи LUMA — показать следующую анкету. True = обработано."""
   if not redis or not await is_luma_people_browse(redis, viewer.id):
@@ -246,6 +250,7 @@ async def try_show_next_luma_person(
         reply_markup=luma_kb(is_premium(viewer), lang_of(viewer)),
         redis=redis,
         edit=edit,
+        finalize_previous=finalize_previous,
       )
       return True
 
@@ -253,7 +258,9 @@ async def try_show_next_luma_person(
     if not profile or profile.disabled or profile.is_banned:
       continue
 
-    await show_luma_person_card(message, viewer, profile, redis=redis, edit=edit)
+    await show_luma_person_card(
+      message, viewer, profile, redis=redis, edit=edit, finalize_previous=finalize_previous
+    )
     return True
 
 

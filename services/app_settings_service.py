@@ -76,7 +76,7 @@ SETTING_META: list[dict] = [
     {
         "key": "withdraw_fee_rate",
         "label": "Комиссия вывода",
-        "hint": "Доля, например 0.1 = 10%",
+        "hint": "Доля без Premium, например 0.15 = 15%",
         "type": "float",
         "group": "fees",
     },

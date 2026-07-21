@@ -25,6 +25,7 @@ from bot.utils.messaging import (
     safe_edit_media,
     safe_edit_text,
     send_ui,
+    strip_inline_keyboard,
 )
 from models import Complaint, Like, Rating, User
 from services.feed_service import get_next_profile, recalculate_rating
@@ -94,15 +95,21 @@ async def show_next_profile(
     *,
     redis: Redis | None = None,
     edit: bool = False,
+    finalize_previous: bool = False,
 ) -> None:
     from bot.handlers.luma import try_show_next_luma_person
 
-    if await try_show_next_luma_person(message, user, session, redis, exclude, edit=edit):
+    if finalize_previous and message.from_user and message.from_user.is_bot:
+        await strip_inline_keyboard(message)
+
+    if await try_show_next_luma_person(
+        message, user, session, redis, exclude, edit=edit, finalize_previous=finalize_previous
+    ):
         return
 
     target = await get_next_profile(session, user, exclude or [])
     if not target:
-        await edit_or_send(message, t(user, "RATE_EMPTY"), redis=redis, edit=edit)
+        await edit_or_send(message, t(user, "RATE_EMPTY"), redis=redis, edit=edit, track=False)
         return
     text = format_other_profile(target, lang_of(user))
     kb = rate_card_kb(target.id, lang_of(user))
@@ -113,6 +120,7 @@ async def show_next_profile(
         reply_markup=kb,
         redis=redis,
         edit=edit,
+        track=False,
     )
 
 
@@ -147,7 +155,9 @@ async def rate_like(callback: CallbackQuery, user: User, session: AsyncSession, 
         elif is_new:
             await notify_incoming_like(callback.bot, target, user)
 
-    await show_next_profile(callback.message, user, session, [target_id], redis=redis, edit=True)
+    await show_next_profile(
+        callback.message, user, session, [target_id], redis=redis, edit=False, finalize_previous=True
+    )
     await callback.answer()
 
 
@@ -361,4 +371,6 @@ async def rate_report_reason(
         )
     )
     await callback.answer(t(user, "RATE_REPORT_DONE"))
-    await show_next_profile(callback.message, user, session, [target_id], redis=redis, edit=True)
+    await show_next_profile(
+        callback.message, user, session, [target_id], redis=redis, edit=False, finalize_previous=True
+    )

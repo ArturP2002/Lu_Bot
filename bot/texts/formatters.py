@@ -43,7 +43,7 @@ def format_own_profile(user: User, lang_or_user=None) -> str:
         else lang_of(lang_or_user or user)
     )
     goal = user.goal
-    goal_text = f"{goal.title} {goal.collected_sparks}/{goal.target_sparks}" if goal else "—"
+    goal_text = tx(lang, "PROFILE_GOAL_OWN", title=goal.title) if goal else "—"
     premium = " ⭐" if is_premium(user) else ""
     verified = " ✅" if user.verified else ""
 

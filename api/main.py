@@ -19,7 +19,7 @@ from core.database import get_session
 from models import Broadcast, Complaint, Event, Payment, SparksTransaction, User, Verification, WithdrawRequest
 from models.entities import BloggerProfile, Referral, ReferralReward
 from services.sparks_service import add_transaction
-from services.user_service import is_premium
+from services.user_service import get_user_by_telegram_id, is_premium
 from services.blogger_service import approve_blogger, reject_blogger
 from services.app_settings_service import (
     SETTING_META,
@@ -838,7 +838,7 @@ async def admin_premium(session: AsyncSession = Depends(get_session), _=Depends(
 
 
 class PremiumGrant(BaseModel):
-    user_id: int
+    telegram_id: int
     days: int = 30  # -1 forever, 0 revoke
 
 
@@ -848,7 +848,7 @@ async def admin_premium_grant(
     session: AsyncSession = Depends(get_session),
     _=Depends(admin_auth),
 ):
-    user = await session.get(User, body.user_id)
+    user = await get_user_by_telegram_id(session, body.telegram_id)
     if not user:
         raise HTTPException(404, "Пользователь не найден")
     now = datetime.now(timezone.utc)
@@ -903,7 +903,7 @@ async def admin_sparks(
 
 
 class SparksAdjust(BaseModel):
-    user_id: int
+    telegram_id: int
     amount: int
     reason: str = "admin_adjust"
 
@@ -914,7 +914,7 @@ async def admin_sparks_adjust(
     session: AsyncSession = Depends(get_session),
     _=Depends(admin_auth),
 ):
-    user = await session.get(User, body.user_id)
+    user = await get_user_by_telegram_id(session, body.telegram_id)
     if not user:
         raise HTTPException(404, "Пользователь не найден")
     await add_transaction(session, user.id, body.amount, body.reason or "admin_adjust")

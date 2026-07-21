@@ -98,7 +98,7 @@ export function Sparks({ toast }: Props) {
     try {
       await api('/admin/sparks/adjust', {
         method: 'POST',
-        body: JSON.stringify({ user_id: Number(userId), amount: Number(amount) }),
+        body: JSON.stringify({ telegram_id: Number(userId), amount: Number(amount) }),
       })
       toast('Баланс обновлён')
       setUserId('')
@@ -120,11 +120,11 @@ export function Sparks({ toast }: Props) {
         <div className="form-grid">
           <div className="form-grid-2">
             <div className="field" style={{ marginBottom: 0 }}>
-              <label>ID пользователя</label>
+              <label>Telegram ID пользователя</label>
               <input
                 className="input"
                 inputMode="numeric"
-                placeholder="Внутренний ID"
+                placeholder="Telegram ID"
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
               />

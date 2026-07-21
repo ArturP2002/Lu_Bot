@@ -29,7 +29,7 @@ from bot.texts.i18n import (
     t,
 )
 from bot.texts.ui_labels import tx
-from bot.utils.messaging import safe_delete, send_ui
+from bot.utils.messaging import replace_ui, safe_delete, send_ui
 from config import get_settings
 from models import Goal, Referral, User
 from services.blogger_service import record_blogger_view
@@ -44,7 +44,7 @@ LANG_BY_LABEL = {v: k for k, v in LANG_LABELS.items()}
 
 async def _send_profile_preview(message: Message, user: User, redis: Redis | None = None) -> None:
     text = f"{t(user, 'REG_PREVIEW_HEADER')}\n\n{format_own_profile(user)}"
-    await send_ui(
+    await replace_ui(
         message,
         text,
         photo_file_id=user.photo_file_id,
@@ -58,7 +58,8 @@ async def cmd_start(
     message: Message, state: FSMContext, session: AsyncSession, user: User, redis: Redis
 ) -> None:
     await state.clear()
-    args = message.text.split(maxsplit=1)
+    await safe_delete(message)
+    args = message.text.split(maxsplit=1) if message.text else []
     payload = args[1].strip() if len(args) > 1 else ""
 
     if payload.startswith("ref_"):
@@ -107,7 +108,7 @@ async def cmd_start(
             pass
 
     await state.set_state(Registration.language)
-    await send_ui(message, t("ru", "REG_ASK_LANG"), reply_markup=language_kb(), redis=redis)
+    await replace_ui(message, t("ru", "REG_ASK_LANG"), reply_markup=language_kb(), redis=redis)
 
 
 @router.message(Registration.language, F.text.in_(LANG_BY_LABEL.keys()))
@@ -118,10 +119,9 @@ async def reg_language(message: Message, state: FSMContext, user: User, session:
     from services.app_settings_service import get_setting_value
 
     rules = await get_setting_value(session, "rules_link_1")
-    privacy = await get_setting_value(session, "rules_link_2")
-    await send_ui(
+    await replace_ui(
         message,
-        t(user, "REG_RULES", rules=rules, privacy=privacy),
+        t(user, "REG_RULES", rules=rules),
         reply_markup=ReplyKeyboardRemove(),
         redis=redis,
         parse_mode="HTML",
@@ -133,7 +133,7 @@ async def reg_name(message: Message, state: FSMContext, user: User, redis: Redis
     user.display_name = message.text.strip()[:100]
     await state.set_state(Registration.photo)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_ASK_PHOTO", name=user.display_name), redis=redis)
+    await replace_ui(message, t(user, "REG_ASK_PHOTO", name=user.display_name), redis=redis)
 
 
 @router.message(Registration.photo, F.photo)
@@ -141,7 +141,7 @@ async def reg_photo(message: Message, state: FSMContext, user: User, redis: Redi
     user.photo_file_id = message.photo[-1].file_id
     await state.set_state(Registration.gender)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_ASK_GENDER"), reply_markup=gender_kb(lang_of(user)), redis=redis)
+    await replace_ui(message, t(user, "REG_ASK_GENDER"), reply_markup=gender_kb(lang_of(user)), redis=redis)
 
 
 @router.message(Registration.gender, F.text)
@@ -152,7 +152,7 @@ async def reg_gender(message: Message, state: FSMContext, user: User, redis: Red
     user.gender = mapping[message.text]
     await state.set_state(Registration.seeking)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_ASK_SEEKING"), reply_markup=seeking_kb(lang_of(user)), redis=redis)
+    await replace_ui(message, t(user, "REG_ASK_SEEKING"), reply_markup=seeking_kb(lang_of(user)), redis=redis)
 
 
 @router.message(Registration.seeking, F.text)
@@ -163,7 +163,7 @@ async def reg_seeking(message: Message, state: FSMContext, user: User, redis: Re
     user.seeking = mapping[message.text]
     await state.set_state(Registration.visible_to)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_ASK_VISIBLE"), reply_markup=visible_kb(lang_of(user)), redis=redis)
+    await replace_ui(message, t(user, "REG_ASK_VISIBLE"), reply_markup=visible_kb(lang_of(user)), redis=redis)
 
 
 @router.message(Registration.visible_to, F.text)
@@ -174,7 +174,7 @@ async def reg_visible(message: Message, state: FSMContext, user: User, redis: Re
     user.visible_to = mapping[message.text]
     await state.set_state(Registration.contact)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_ASK_CONTACT"), reply_markup=contact_kb(lang_of(user)), redis=redis)
+    await replace_ui(message, t(user, "REG_ASK_CONTACT"), reply_markup=contact_kb(lang_of(user)), redis=redis)
 
 
 @router.message(Registration.contact, F.contact)
@@ -182,7 +182,7 @@ async def reg_contact(message: Message, state: FSMContext, user: User, redis: Re
     user.contact_phone = message.contact.phone_number
     await state.set_state(Registration.age)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_ASK_AGE"), reply_markup=ReplyKeyboardRemove(), redis=redis)
+    await replace_ui(message, t(user, "REG_ASK_AGE"), reply_markup=ReplyKeyboardRemove(), redis=redis)
 
 
 @router.message(Registration.age, F.text)
@@ -193,7 +193,7 @@ async def reg_age(message: Message, state: FSMContext, user: User, redis: Redis)
     user.age = int(message.text)
     await state.set_state(Registration.city)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_PRIVACY_CITY"), redis=redis)
+    await replace_ui(message, t(user, "REG_PRIVACY_CITY"), redis=redis)
 
 
 @router.message(Registration.city, F.text)
@@ -201,7 +201,7 @@ async def reg_city(message: Message, state: FSMContext, user: User, redis: Redis
     user.city = message.text.strip()[:255]
     await state.set_state(Registration.bio)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_ASK_BIO"), redis=redis)
+    await replace_ui(message, t(user, "REG_ASK_BIO"), redis=redis)
 
 
 @router.message(Registration.bio, F.text)
@@ -213,7 +213,7 @@ async def reg_bio(message: Message, state: FSMContext, user: User, redis: Redis)
     user.bio = message.text.strip()[:1000]
     await state.set_state(Registration.goal_title)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_ASK_GOAL"), redis=redis)
+    await replace_ui(message, t(user, "REG_ASK_GOAL"), redis=redis)
 
 
 @router.message(Registration.goal_title, F.text)
@@ -221,7 +221,7 @@ async def reg_goal_title(message: Message, state: FSMContext, user: User, redis:
     await state.update_data(goal_title=message.text.strip()[:255])
     await state.set_state(Registration.goal_amount)
     await safe_delete(message)
-    await send_ui(message, t(user, "REG_ASK_GOAL_AMOUNT"), redis=redis)
+    await replace_ui(message, t(user, "REG_ASK_GOAL_AMOUNT"), redis=redis)
 
 
 @router.message(Registration.goal_amount, F.text)
@@ -251,7 +251,12 @@ async def reg_finish(
     await process_referral_on_profile_complete(session, user)
     await state.clear()
     await safe_delete(callback.message)
-    await send_ui(callback.message, t(user, "REG_COMPLETE"), reply_markup=limited_menu_kb(lang_of(user)), redis=redis)
+    await replace_ui(
+        callback.message,
+        t(user, "REG_COMPLETE"),
+        reply_markup=limited_menu_kb(lang_of(user)),
+        redis=redis,
+    )
     if pending_event_id:
         from bot.handlers.events import open_event_by_id
 

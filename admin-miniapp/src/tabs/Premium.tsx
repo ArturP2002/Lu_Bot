@@ -94,7 +94,7 @@ export function Premium({ toast }: Props) {
     try {
       await api('/admin/premium/grant', {
         method: 'POST',
-        body: JSON.stringify({ user_id: Number(userId), days: Number(days) }),
+        body: JSON.stringify({ telegram_id: Number(userId), days: Number(days) }),
       })
       toast('Подписка обновлена')
       setUserId('')
@@ -120,11 +120,11 @@ export function Premium({ toast }: Props) {
         <div className="form-grid">
           <div className="form-grid-2">
             <div className="field" style={{ marginBottom: 0 }}>
-              <label>ID пользователя</label>
+              <label>Telegram ID пользователя</label>
               <input
                 className="input"
                 inputMode="numeric"
-                placeholder="Внутренний ID"
+                placeholder="Telegram ID"
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
               />

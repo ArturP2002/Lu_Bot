@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     webhook_secret: str = ""
     ai_daily_limit: int = 50
     support_fee_rate: float = 0.10
-    withdraw_fee_rate: float = 0.10
-    withdraw_min: int = 500
+    withdraw_fee_rate: float = 0.15
+    withdraw_min: int = 1000
     premium_price: int = 149
     rating_reset_price: int = 50
     # Платежи: yookassa | stars (по умолчанию все оплаты идут через ЮKassa)
