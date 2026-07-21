@@ -42,11 +42,11 @@ def create_dispatcher(redis: Redis) -> Dispatcher:
   storage = RedisStorage(redis=redis)
   dp = Dispatcher(storage=storage)
 
+  dp.update.middleware(PinMainMenuMiddleware())
   dp.update.middleware(DatabaseMiddleware())
   dp.update.middleware(RedisMiddleware(redis))
   dp.update.middleware(UserMiddleware())
   dp.update.middleware(ThrottleMiddleware(redis))
-  dp.update.middleware(PinMainMenuMiddleware())
 
   dp.include_router(registration.router)
   dp.include_router(admin.router)

@@ -16,6 +16,8 @@ from aiogram.types import (
 )
 from redis.asyncio import Redis
 
+from bot.utils.reply_menu import mark_menu_kb_attached
+
 UI_MSG_KEY = "ui:msg:{chat_id}"
 UI_MSG_TTL = 60 * 60 * 24 * 7  # 7 дней
 
@@ -98,6 +100,13 @@ async def _track(redis: Redis | None, msg: Message | None) -> Message | None:
   return msg
 
 
+def _maybe_mark_menu_kb(
+  reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | None,
+) -> None:
+  if isinstance(reply_markup, ReplyKeyboardMarkup):
+    mark_menu_kb_attached()
+
+
 async def send_ui(
   message: Message,
   text: str,
@@ -109,6 +118,7 @@ async def send_ui(
   track: bool = True,
 ) -> Message:
   """Отправить новый UI-экран и опционально запомнить message_id."""
+  _maybe_mark_menu_kb(reply_markup)
   kwargs: dict[str, Any] = {"reply_markup": reply_markup}
   if parse_mode is not None:
     kwargs["parse_mode"] = parse_mode

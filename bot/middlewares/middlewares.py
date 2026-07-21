@@ -118,9 +118,16 @@ class PinMainMenuMiddleware(BaseMiddleware):
     ) -> Any:
         from aiogram.types import CallbackQuery, Message
 
-        from bot.utils.reply_menu import pin_main_menu, should_pin_main_menu
+        from bot.utils.reply_menu import (
+            consume_menu_kb_attached,
+            pin_main_menu,
+            should_pin_main_menu,
+        )
 
         result = await handler(event, data)
+
+        if consume_menu_kb_attached():
+            return result
 
         user = data.get("user")
         if not user or not getattr(user, "profile_completed", False):
@@ -140,5 +147,5 @@ class PinMainMenuMiddleware(BaseMiddleware):
             chat_id = event.message.chat.id
 
         if bot and chat_id:
-            await pin_main_menu(bot, chat_id, user)
+            await pin_main_menu(bot, chat_id, user, redis=data.get("redis"))
         return result
