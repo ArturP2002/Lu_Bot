@@ -29,7 +29,7 @@ export function Shell({ tab, onTab, toast, children }: ShellProps) {
     <div className="app">
       <header className="header">
         <div className="brand">
-          <span className="brand-name">LUMA</span>
+          <span className="brand-name">LUMO</span>
           <span className="brand-sub">Admin</span>
         </div>
         <nav className="tabs" aria-label="Разделы">

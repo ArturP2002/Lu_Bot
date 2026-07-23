@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -144,38 +145,29 @@ async def find_events(
     exclude_id: int | None = None,
     limit: int = 20,
 ) -> list[Event]:
-    """Лента тусовок с фильтрами категорий и сортировкой pin/boost."""
-    now = datetime.now(timezone.utc)
-    today = now.strftime("%d.%m.%Y")
+    """Лента тусовок с фильтрами категорий и сортировкой pin/boost.
+
+    filter_type:
+      - time (Сегодня) — по дате события «сегодня» (МСК) и/или тегу категории
+      - geo (Рядом) — тот же город, что у зрителя
+      - type — тематика (На хату, Игры, …) по полю Event.category
+    """
+    now = datetime.now(ZoneInfo("Europe/Moscow"))
+    today_variants = _today_date_variants(now)
     clauses = [Event.status == EventStatus.ACTIVE.value]
     if exclude_id:
         clauses.append(Event.id != exclude_id)
 
-    category: EventCategory | None = None
     if category_id:
         category = await session.get(EventCategory, category_id)
         if category:
-            ft = category.filter_type
-            name = category.name.lower()
-            if ft == "time" or "сегодня" in name or "today" in name:
-                clauses.append(Event.event_date == today)
-            elif ft == "geo" or "рядом" in name or "near" in name:
-                if viewer.city:
-                    clauses.append(func.lower(Event.city) == viewer.city.lower())
-            else:
-                # type filter by category name stored on event
-                clauses.append(
-                    or_(
-                        Event.category == category.name,
-                        Event.category == f"{category.emoji} {category.name}".strip(),
-                    )
-                )
+            clauses.extend(_category_filter_clauses(category, viewer, today_variants))
 
     stmt = (
         select(Event)
         .where(and_(*clauses))
         .order_by(
-            case((Event.pinned_until > now, 1), else_=0).desc(),
+            case((Event.pinned_until > datetime.now(timezone.utc), 1), else_=0).desc(),
             Event.pinned_until.desc().nullslast(),
             Event.boosted_at.desc().nullslast(),
             Event.id.desc(),
@@ -184,6 +176,71 @@ async def find_events(
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+def _today_date_variants(now: datetime | None = None) -> list[str]:
+    """Возможные форматы «сегодня» для сравнения с Event.event_date."""
+    now = now or datetime.now(ZoneInfo("Europe/Moscow"))
+    return [
+        now.strftime("%d.%m.%Y"),
+        now.strftime("%d/%m/%Y"),
+        now.strftime("%Y-%m-%d"),
+        now.strftime("%d.%m.%y"),
+        now.strftime("%d/%m/%y"),
+    ]
+
+
+def _category_filter_clauses(
+    category: EventCategory,
+    viewer: User,
+    today_variants: list[str],
+) -> list:
+    """SQL-условия для категории поиска."""
+    ft = (category.filter_type or "type").strip().lower()
+    name = (category.name or "").strip()
+    name_l = name.lower()
+    emoji_label = f"{(category.emoji or '').strip()} {name}".strip()
+
+    # Сегодня / time — дата «сегодня» или тусовка с этим тегом категории
+    if ft == "time" or name_l in {"сегодня", "today"} or "сегодня" in name_l or "today" in name_l:
+        return [
+            or_(
+                Event.event_date.in_(today_variants),
+                Event.category.ilike(f"%{name}%"),
+                Event.category.ilike("%сегодня%"),
+                Event.category.ilike("%today%"),
+            )
+        ]
+
+    # Рядом / geo — тот же город
+    if ft == "geo" or name_l in {"рядом", "near"} or "рядом" in name_l or "near" in name_l:
+        city = (viewer.city or "").strip()
+        if city:
+            return [func.lower(Event.city) == city.lower()]
+        # Без города в анкете — нечего искать «рядом»
+        return [Event.id == -1]
+
+    # Тематика — гибкое совпадение по названию / emoji+название
+    return [
+        or_(
+            Event.category == name,
+            Event.category == emoji_label,
+            Event.category.ilike(f"%{name}%"),
+        )
+    ]
+
+
+def is_topic_category(category: EventCategory) -> bool:
+    """Категория-тематика для создания тусовки (не умный фильтр Сегодня/Рядом)."""
+    ft = (category.filter_type or "type").strip().lower()
+    name_l = (category.name or "").strip().lower()
+    if ft in {"time", "geo"}:
+        return False
+    if name_l in {"сегодня", "today", "рядом", "near"}:
+        return False
+    if "сегодня" in name_l or "рядом" in name_l:
+        return False
+    return True
 
 
 async def get_next_event(

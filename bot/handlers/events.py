@@ -47,6 +47,7 @@ from services.event_service import (
     get_boost_price_for_user,
     get_next_event,
     get_pin_price_for_user,
+    is_topic_category,
     pin_event,
     send_mass_invites,
     sync_events_organized,
@@ -270,9 +271,13 @@ async def ev_create_women(message: Message, state: FSMContext, user: User, sessi
   await state.set_state(EventCreate.category)
   await cleanup_user_and_prompt(message, prompt_message_id=data.get("prompt_message_id"))
   result = await session.execute(select(EventCategory).where(EventCategory.is_active.is_(True)))
-  cats = list(result.scalars().all())
+  cats = [c for c in result.scalars().all() if is_topic_category(c)]
   lang = lang_of(user)
   from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+  if not cats:
+    await send_ui(message, tx(user, "EVENT_EMPTY_CAT"), redis=redis)
+    return
 
   rows, row = [], []
   for c in cats:
@@ -575,9 +580,23 @@ async def ev_find(callback: CallbackQuery, session: AsyncSession, user: User, re
 async def ev_cat_browse(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
   lang = lang_of(user)
   cat_id = int(callback.data.split(":")[-1])
+  cat = await session.get(EventCategory, cat_id)
   event = await get_next_event(session, user, category_id=cat_id)
   if not event:
-    await safe_edit_text(callback.message, tx(user, "EVENT_EMPTY_CAT"), reply_markup=events_menu_kb(lang), redis=redis)
+    empty_key = "EVENT_EMPTY_CAT"
+    if cat:
+      ft = (cat.filter_type or "type").strip().lower()
+      name_l = (cat.name or "").lower()
+      if ft == "time" or "сегодня" in name_l:
+        empty_key = "EVENT_EMPTY_TODAY"
+      elif ft == "geo" or "рядом" in name_l:
+        empty_key = "EVENT_EMPTY_NEAR"
+    await safe_edit_text(
+      callback.message,
+      tx(user, empty_key),
+      reply_markup=events_menu_kb(lang),
+      redis=redis,
+    )
     await callback.answer()
     return
   org = await get_user_by_id(session, event.organizer_id)

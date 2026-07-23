@@ -7,6 +7,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
 from redis.asyncio import Redis
@@ -406,10 +407,16 @@ async def search_events(
     if f is None:
         f = await resolve_event_filters(session, viewer, query) if use_ai_parse else parse_event_filters_heuristic(query, viewer)
 
-    today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    today = datetime.now(ZoneInfo("Europe/Moscow"))
+    today_variants = [
+        today.strftime("%d.%m.%Y"),
+        today.strftime("%d/%m/%Y"),
+        today.strftime("%Y-%m-%d"),
+        today.strftime("%d.%m.%y"),
+    ]
     base = [Event.status == EventStatus.ACTIVE.value]
     if f.today_only:
-        base.append(Event.event_date == today)
+        base.append(Event.event_date.in_(today_variants))
 
     city = f.city or (viewer.city if f.prefer_viewer_city else None)
 
