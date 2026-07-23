@@ -22,6 +22,19 @@ def is_premium(user: User) -> bool:
     return premium_until > now
 
 
+def free_rating_reset_available(user: User) -> bool:
+    """Premium: бесплатный сброс рейтинга не чаще 1 раза в календарный месяц."""
+    if not is_premium(user):
+        return False
+    now = datetime.now(timezone.utc)
+    last = user.free_rating_reset_at
+    if last is None:
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return (last.year, last.month) != (now.year, now.month)
+
+
 def generate_referral_code(length: int = 8) -> str:
     """Генерация уникального реферального кода."""
     alphabet = string.ascii_lowercase + string.digits

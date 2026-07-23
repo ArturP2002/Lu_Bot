@@ -44,7 +44,7 @@ from models.entities import VerificationStatus
 from services.blogger_service import apply_blogger, blogger_link, get_or_create_blogger
 from services.referral_service import count_completed_referrals, get_available_rewards
 from services.sparks_service import withdraw_sparks
-from services.user_service import is_premium
+from services.user_service import free_rating_reset_available, is_premium
 from services.verification_service import verify_video_note
 
 router = Router()
@@ -587,11 +587,20 @@ async def pay_buy_stars(callback: CallbackQuery, user: User, session: AsyncSessi
 
 
 @router.callback_query(F.data == "prof:reset_rating")
-async def prof_reset_rating(callback: CallbackQuery, user: User, redis: Redis) -> None:
+async def prof_reset_rating(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
+  from services.app_settings_service import get_setting_int
+
+  reset_price = await get_setting_int(session, "rating_reset_price")
+  free_ok = free_rating_reset_available(user)
   await safe_edit_text(
     callback.message,
     t(user, "RATING_RESET_INFO"),
-    reply_markup=rating_reset_kb(is_premium(user), lang_of(user)),
+    reply_markup=rating_reset_kb(
+      is_premium(user),
+      lang_of(user),
+      free_available=free_ok,
+      price=reset_price,
+    ),
     redis=redis,
   )
   await callback.answer()
@@ -603,7 +612,7 @@ async def prof_rating_pay(callback: CallbackQuery, user: User, session: AsyncSes
   from services.sparks_service import add_transaction
 
   now = datetime.now(timezone.utc)
-  if is_premium(user) and (not user.free_rating_reset_at or user.free_rating_reset_at.month != now.month):
+  if free_rating_reset_available(user):
     user.rating_avg = 0
     user.rating_count = 0
     user.free_rating_reset_at = now

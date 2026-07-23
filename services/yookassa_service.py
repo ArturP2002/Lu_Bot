@@ -52,7 +52,7 @@ async def create_yookassa_payment(
         raise ValueError("Сумма должна быть больше 0")
 
     amount_rub = await rub_amount_for_sparks(session, amount_sparks)
-    description = description or f"Покупка {amount_sparks} Искр (LUMA)"
+    description = description or f"Покупка {amount_sparks} Искр (LUMO)"
 
     from services.app_settings_service import get_setting_bool
 

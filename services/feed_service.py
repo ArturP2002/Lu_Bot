@@ -1,6 +1,8 @@
 """Сервис ленты анкет."""
 
-from sqlalchemy import and_, func, or_, select
+from datetime import datetime, timezone
+
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -8,10 +10,14 @@ from models import Like, Rating, User
 
 
 async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: list[int] | None = None) -> User | None:
-    """Получить следующую анкету для просмотра."""
+    """Получить следующую анкету для просмотра.
+
+    Premium-анкеты чаще в топе: активный Premium выше остальных.
+    """
     from services.app_settings_service import get_setting_bool
 
     exclude_ids = exclude_ids or []
+    now = datetime.now(timezone.utc)
 
     liked_subq = select(Like.to_user_id).where(Like.from_user_id == viewer.id)
 
@@ -46,8 +52,16 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
     if await get_setting_bool(session, "feed_filter_city") and viewer.city:
         conditions.append(func.lower(User.city) == viewer.city.strip().lower())
 
+    premium_rank = case((User.premium_until > now, 1), else_=0)
     query = select(User).options(selectinload(User.goal)).where(and_(*conditions))
-    result = await session.execute(query.order_by(User.premium_until.desc().nullslast(), User.id).limit(1))
+    result = await session.execute(
+        query.order_by(
+            premium_rank.desc(),
+            User.premium_until.desc().nullslast(),
+            User.rating_avg.desc(),
+            User.id,
+        ).limit(1)
+    )
     return result.scalar_one_or_none()
 
 

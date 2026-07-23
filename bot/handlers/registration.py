@@ -14,6 +14,7 @@ from bot.keyboards.keyboards import (
     language_kb,
     limited_menu_kb,
     next_step_kb,
+    rules_agree_kb,
     seeking_kb,
     visible_kb,
 )
@@ -29,7 +30,7 @@ from bot.texts.i18n import (
     t,
 )
 from bot.texts.ui_labels import tx
-from bot.utils.messaging import replace_ui, safe_delete, send_ui
+from bot.utils.messaging import replace_ui, safe_delete, send_ui, strip_inline_keyboard
 from config import get_settings
 from models import Goal, Referral, User
 from services.blogger_service import record_blogger_view
@@ -113,18 +114,37 @@ async def cmd_start(
 @router.message(Registration.language, F.text.in_(LANG_BY_LABEL.keys()))
 async def reg_language(message: Message, state: FSMContext, user: User, session: AsyncSession, redis: Redis) -> None:
     user.language = LANG_BY_LABEL[message.text]
-    await state.set_state(Registration.name)
+    await state.set_state(Registration.rules)
     await safe_delete(message)
     from services.app_settings_service import get_setting_value
 
     rules = await get_setting_value(session, "rules_link_1")
-    await replace_ui(
+    sent = await replace_ui(
         message,
         t(user, "REG_RULES", rules=rules),
         reply_markup=ReplyKeyboardRemove(),
         redis=redis,
         parse_mode="HTML",
     )
+    agree_kb = rules_agree_kb(lang_of(user))
+    try:
+        await sent.edit_reply_markup(reply_markup=agree_kb)
+    except Exception:
+        await send_ui(
+            message,
+            t(user, "REG_RULES", rules=rules),
+            reply_markup=agree_kb,
+            redis=redis,
+            parse_mode="HTML",
+        )
+
+
+@router.callback_query(Registration.rules, F.data == "reg:agree")
+async def reg_agree_rules(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+    await state.set_state(Registration.name)
+    await strip_inline_keyboard(callback.message)
+    await send_ui(callback.message, t(user, "REG_ASK_NAME"), redis=redis)
+    await callback.answer()
 
 
 @router.message(Registration.name, F.text)

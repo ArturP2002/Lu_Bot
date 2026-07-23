@@ -120,6 +120,14 @@ def next_step_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     )
 
 
+def rules_agree_kb(lang: str = "ru") -> InlineKeyboardMarkup:
+    from bot.texts.i18n import t
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=t(lang, "BTN_AGREE_RULES"), callback_data="reg:agree")]]
+    )
+
+
 # Профиль
 def profile_kb(disabled: bool = False, lang: str = "ru") -> InlineKeyboardMarkup:
     rows = [
@@ -251,9 +259,19 @@ def withdraw_method_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     )
 
 
-def rating_reset_kb(is_premium: bool, lang: str = "ru") -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text=lbl(lang, "reset_rating_50"), callback_data="prof:rating:pay")]]
-    if not is_premium:
+def rating_reset_kb(
+    is_premium_user: bool,
+    lang: str = "ru",
+    *,
+    free_available: bool = False,
+    price: int = 50,
+) -> InlineKeyboardMarkup:
+    if is_premium_user and free_available:
+        reset_text = lbl(lang, "reset_rating_free")
+    else:
+        reset_text = lbl(lang, "reset_rating_price").format(price=price)
+    rows = [[InlineKeyboardButton(text=reset_text, callback_data="prof:rating:pay")]]
+    if not is_premium_user:
         rows.append([InlineKeyboardButton(text=lbl(lang, "buy_premium"), callback_data="prof:premium")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -426,7 +444,18 @@ def event_card_kb(event_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
     )
 
 
-def event_manage_kb(event_id: int, mass_available: bool, lang: str = "ru") -> InlineKeyboardMarkup:
+def event_manage_kb(
+    event_id: int,
+    mass_available: bool,
+    lang: str = "ru",
+    *,
+    boost_price: int = 50,
+    pin_price: int = 500,
+) -> InlineKeyboardMarkup:
+    if boost_price <= 0:
+        boost_text = lbl(lang, "ev_boost_free")
+    else:
+        boost_text = lbl(lang, "ev_boost_price").format(price=boost_price)
     rows = [
         [
             InlineKeyboardButton(text=lbl(lang, "ev_parts"), callback_data=f"ev:mg:parts:{event_id}"),
@@ -434,8 +463,11 @@ def event_manage_kb(event_id: int, mass_available: bool, lang: str = "ru") -> In
         ],
         [InlineKeyboardButton(text=lbl(lang, "ev_apps"), callback_data=f"ev:mg:apps:{event_id}")],
         [
-            InlineKeyboardButton(text=lbl(lang, "ev_boost_50"), callback_data=f"ev:boost:{event_id}"),
-            InlineKeyboardButton(text=lbl(lang, "ev_pin_500"), callback_data=f"ev:pin:{event_id}"),
+            InlineKeyboardButton(text=boost_text, callback_data=f"ev:boost:{event_id}"),
+            InlineKeyboardButton(
+                text=lbl(lang, "ev_pin_price").format(price=pin_price),
+                callback_data=f"ev:pin:{event_id}",
+            ),
         ],
         [InlineKeyboardButton(text=lbl(lang, "ev_close_chat"), callback_data=f"ev:mg:close:{event_id}")],
         [InlineKeyboardButton(text=lbl(lang, "ev_edit"), callback_data=f"ev:mg:edit:{event_id}")],

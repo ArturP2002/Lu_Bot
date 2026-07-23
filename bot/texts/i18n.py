@@ -85,8 +85,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "REG_ASK_LANG": "Привет! Выбери язык общения:",
         "REG_RULES": (
             "Ознакомьтесь с правилами ниже:\n"
-            "<a href='{rules}'>Правила</a>\n\n"
-            "Меня зовут Луна, а как зовут тебя?"
+            "<a href='{rules}'>Правила</a>"
         ),
         "REG_ASK_NAME": "Меня зовут Луна, а как зовут тебя?",
         "REG_ASK_PHOTO": "Приятно познакомиться, {name}! Теперь отправь свое фото.",
@@ -147,6 +146,7 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "EVENT_CLOSE_CONFIRM": "Закрыть набор и разослать приглашения участникам?",
         "EVENT_BOOST_OK": "Тусовка поднята в ТОП (−{price} Искр).",
+        "EVENT_BOOST_FREE_OK": "Тусовка поднята в ТОП бесплатно (Premium, 1 раз в час).",
         "EVENT_PIN_OK": "Тусовка закреплена на {hours} ч (−{price} Искр).",
         "EVENT_MASS_SENT": "Приглашения отправлены {count} пользователям рядом.",
         "EVENT_NOT_FOUND": "Тусовка не найдена или удалена.",
@@ -204,6 +204,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "ERR_AGE": "Возраст должен быть от 18 лет",
         "ERR_INVALID_INPUT": "Некорректный ввод, попробуй ещё раз",
         "BTN_NEXT_STEP": "Следующий шаг",
+        "BTN_AGREE_RULES": "Согласен",
         "BTN_SEND_CONTACT": "Отправить контакт",
         "PROFILE_LANG": "Выбери язык:",
         "VERIFY_INFO": (
@@ -218,8 +219,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "REG_ASK_LANG": "Прывітанне! Абяры мову зносін:",
         "REG_RULES": (
             "Азнаёмцеся з правіламі:\n"
-            "<a href='{rules}'>Правілы</a>\n\n"
-            "Мяне клічуць Луна, а як цябе?"
+            "<a href='{rules}'>Правілы</a>"
         ),
         "REG_ASK_NAME": "Мяне клічуць Луна, а як цябе?",
         "REG_ASK_PHOTO": "Прыемна пазнаёміцца, {name}! Цяпер дашлі сваё фота.",
@@ -276,6 +276,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "EVENT_CLOSE_DONE": "Набор закрыты. Запрашэнні адпраўлены.\nСпасылка: {link}",
         "EVENT_CLOSE_CONFIRM": "Закрыць набор і разаслаць запрашэнні?",
         "EVENT_BOOST_OK": "Тусоўка ў ТОП (−{price} Іскраў).",
+        "EVENT_BOOST_FREE_OK": "Тусоўка ў ТОП бясплатна (Premium, 1 раз на гадзіну).",
         "EVENT_PIN_OK": "Закрэплена на {hours} г (−{price} Іскраў).",
         "EVENT_MASS_SENT": "Запрашэнні адпраўлены {count} карыстальнікам.",
         "EVENT_NOT_FOUND": "Тусоўка не знойдзена.",
@@ -315,6 +316,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "ERR_AGE": "Узрост ад 18 гадоў",
         "ERR_INVALID_INPUT": "Няправільны ўвод",
         "BTN_NEXT_STEP": "Наступны крок",
+        "BTN_AGREE_RULES": "Згодны",
         "BTN_SEND_CONTACT": "Даслаць кантакт",
         "PROFILE_LANG": "Абяры мову:",
         "VERIFY_INFO": "Запішы кружок. Код: <b>{code}</b>\nЖэст: {gesture}",
@@ -326,8 +328,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "REG_ASK_LANG": "Привіт! Обери мову спілкування:",
         "REG_RULES": (
             "Ознайомся з правилами:\n"
-            "<a href='{rules}'>Правила</a>\n\n"
-            "Мене звати Луна, а тебе?"
+            "<a href='{rules}'>Правила</a>"
         ),
         "REG_ASK_NAME": "Мене звати Луна, а тебе?",
         "REG_ASK_PHOTO": "Приємно познайомитись, {name}! Тепер надішли своє фото.",
@@ -384,6 +385,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "EVENT_CLOSE_DONE": "Набір закрито. Запрошення надіслано.\nПосилання: {link}",
         "EVENT_CLOSE_CONFIRM": "Закрити набір і розіслати запрошення?",
         "EVENT_BOOST_OK": "Тусовку піднято в ТОП (−{price} Іскор).",
+        "EVENT_BOOST_FREE_OK": "Тусовку піднято в ТОП безкоштовно (Premium, 1 раз на годину).",
         "EVENT_PIN_OK": "Закріплено на {hours} год (−{price} Іскор).",
         "EVENT_MASS_SENT": "Запрошення надіслано {count} користувачам.",
         "EVENT_NOT_FOUND": "Тусовку не знайдено.",
@@ -423,6 +425,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "ERR_AGE": "Вік від 18 років",
         "ERR_INVALID_INPUT": "Некоректне введення",
         "BTN_NEXT_STEP": "Наступний крок",
+        "BTN_AGREE_RULES": "Погоджуюсь",
         "BTN_SEND_CONTACT": "Надіслати контакт",
         "PROFILE_LANG": "Обери мову:",
         "VERIFY_INFO": "Запиши кружок. Код: <b>{code}</b>\nЖест: {gesture}",
@@ -434,8 +437,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "REG_ASK_LANG": "Сәлем! Тілді таңда:",
         "REG_RULES": (
             "Ережелермен таныс:\n"
-            "<a href='{rules}'>Ережелер</a>\n\n"
-            "Менің атым Луна, сенікі ше?"
+            "<a href='{rules}'>Ережелер</a>"
         ),
         "REG_ASK_NAME": "Менің атым Луна, сенікі ше?",
         "REG_ASK_PHOTO": "Танысқаныма қуаныштымын, {name}! Енді фотоңды жібер.",
@@ -492,6 +494,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "EVENT_CLOSE_DONE": "Жинақ жабылды. Шақырулар жіберілді.\nСілтеме: {link}",
         "EVENT_CLOSE_CONFIRM": "Жинақты жауып, шақыруларды жібереміз бе?",
         "EVENT_BOOST_OK": "Тусовка ТОП-қа көтерілді (−{price} Ұшқын).",
+        "EVENT_BOOST_FREE_OK": "Тусовка тегін ТОП-қа көтерілді (Premium, сағатына 1 рет).",
         "EVENT_PIN_OK": "{hours} сағ бекітілді (−{price} Ұшқын).",
         "EVENT_MASS_SENT": "{count} пайдаланушыға шақыру жіберілді.",
         "EVENT_NOT_FOUND": "Тусовка табылмады.",
@@ -531,6 +534,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "ERR_AGE": "Жас 18-ден бастап",
         "ERR_INVALID_INPUT": "Қате енгізу",
         "BTN_NEXT_STEP": "Келесі қадам",
+        "BTN_AGREE_RULES": "Келісемін",
         "BTN_SEND_CONTACT": "Байланысты жіберу",
         "PROFILE_LANG": "Тілді таңда:",
         "VERIFY_INFO": "Дөңгелек жаз. Код: <b>{code}</b>\nИшара: {gesture}",

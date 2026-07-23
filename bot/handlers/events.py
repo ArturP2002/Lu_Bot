@@ -1,5 +1,7 @@
 """Раздел Тусовки."""
 
+from datetime import datetime, timezone
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -42,7 +44,9 @@ from services.event_service import (
     boost_event,
     can_create_event,
     close_event_and_invite,
+    get_boost_price_for_user,
     get_next_event,
+    get_pin_price_for_user,
     pin_event,
     send_mass_invites,
 )
@@ -54,11 +58,34 @@ router = Router()
 settings = get_settings()
 
 
+async def _event_manage_kb(
+    session: AsyncSession,
+    user: User,
+    event_id: int,
+    mass_available: bool,
+    lang: str,
+):
+    event = await session.get(Event, event_id)
+    boost_price = await get_boost_price_for_user(session, user, event)
+    pin_price = await get_pin_price_for_user(session, user, hours=1)
+    return event_manage_kb(
+        event_id,
+        mass_available,
+        lang,
+        boost_price=boost_price,
+        pin_price=pin_price,
+    )
+
+
 def format_event_card(event: Event, organizer: User | None = None, lang: str = "ru") -> str:
     org = ""
     if organizer:
         org = f"\n👤 {organizer.display_name or organizer.username or '—'}"
-    pin = " 📌" if event.pinned_until else ""
+    now = datetime.now(timezone.utc)
+    pinned_until = event.pinned_until
+    if pinned_until is not None and pinned_until.tzinfo is None:
+        pinned_until = pinned_until.replace(tzinfo=timezone.utc)
+    pin = " 📌" if pinned_until and pinned_until > now else ""
     boost = " ⬆️" if event.boosted_at else ""
     return tx(
         lang,
@@ -393,7 +420,7 @@ async def ev_pick(callback: CallbackQuery, user: User, session: AsyncSession, re
     await safe_edit_text(
       callback.message,
       tx(user, "EVENT_ROLE_ORG", meta=meta),
-      reply_markup=event_manage_kb(event.id, mass_ok, lang),
+      reply_markup=await _event_manage_kb(session, user, event.id, mass_ok, lang),
       redis=redis,
     )
   else:
@@ -868,8 +895,10 @@ async def ev_boost(callback: CallbackQuery, user: User, session: AsyncSession, r
     return
   try:
     price = await boost_event(session, user, event)
-    await pay_blogger_commission(session, user, price, purpose="event_boost")
-    await callback.answer(t(user, "EVENT_BOOST_OK", price=price), show_alert=True)
+    if price > 0:
+      await pay_blogger_commission(session, user, price, purpose="event_boost")
+    key = "EVENT_BOOST_FREE_OK" if price <= 0 else "EVENT_BOOST_OK"
+    await callback.answer(t(user, key, price=price), show_alert=True)
   except ValueError as e:
     await callback.answer(service_err(user, e), show_alert=True)
 
@@ -925,7 +954,7 @@ async def ev_participants(callback: CallbackQuery, user: User, session: AsyncSes
     await safe_edit_text(
       callback.message,
       tx(user, "EVENT_PARTS_EMPTY", title=event.title),
-      reply_markup=event_manage_kb(event.id, False, lang),
+      reply_markup=await _event_manage_kb(session, user, event.id, False, lang),
       redis=redis,
     )
     await callback.answer()
@@ -977,7 +1006,7 @@ async def ev_manage_back(callback: CallbackQuery, user: User, session: AsyncSess
       date=event.event_date,
       time=event.event_time,
     ),
-    reply_markup=event_manage_kb(event.id, mass_ok, lang),
+    reply_markup=await _event_manage_kb(session, user, event.id, mass_ok, lang),
     redis=redis,
   )
   await callback.answer()
@@ -1064,7 +1093,7 @@ async def ev_edit_photo_save(
       date=event.event_date,
       time=event.event_time,
     ),
-    reply_markup=event_manage_kb(event.id, mass_ok, lang),
+    reply_markup=await _event_manage_kb(session, user, event.id, mass_ok, lang),
     redis=redis,
   )
 
@@ -1120,6 +1149,6 @@ async def ev_edit_text_save(
       date=event.event_date,
       time=event.event_time,
     ),
-    reply_markup=event_manage_kb(event.id, mass_ok, lang),
+    reply_markup=await _event_manage_kb(session, user, event.id, mass_ok, lang),
     redis=redis,
   )

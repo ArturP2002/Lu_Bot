@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     withdraw_min: int = 1000
     premium_price: int = 149
     rating_reset_price: int = 50
+    event_boost_price: int = 50
+    event_pin_price: int = 500
     # Платежи: yookassa | stars (по умолчанию все оплаты идут через ЮKassa)
     payment_provider: str = "yookassa"
     yookassa_shop_id: str = ""

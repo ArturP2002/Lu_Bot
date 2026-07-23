@@ -376,7 +376,7 @@ async def search_people(
                     else_=0,
                 )
         score = score + case((User.verified.is_(True), 5), else_=0)
-        score = score + case((User.premium_until.is_not(None), 3), else_=0)
+        score = score + case((User.premium_until > datetime.now(timezone.utc), 25), else_=0)
         result = await session.execute(
             select(User).where(and_(*clauses)).order_by(score.desc(), User.id.desc()).limit(limit)
         )

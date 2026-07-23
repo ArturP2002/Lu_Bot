@@ -5,6 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 class Registration(StatesGroup):
     language = State()
+    rules = State()
     name = State()
     photo = State()
     gender = State()

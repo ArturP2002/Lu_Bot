@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
@@ -16,10 +16,56 @@ from bot.texts.ui_labels import tx
 
 settings = get_settings()
 
-BOOST_PRICE = 50
-PIN_PRICE_PER_HOUR = 500
-PREMIUM_PROMO_DISCOUNT = 0.80  # 80% скидка
+# Premium: закреп со скидкой 50%; поднятие в топ — бесплатно раз в час
+PREMIUM_PIN_DISCOUNT = 0.50
+FREE_BOOST_COOLDOWN = timedelta(hours=1)
 MASS_INVITE_LIMIT = 30
+
+
+async def get_boost_base_price(session: AsyncSession) -> int:
+    from services.app_settings_service import get_setting_int
+
+    return max(1, await get_setting_int(session, "event_boost_price"))
+
+
+async def get_pin_base_price(session: AsyncSession) -> int:
+    from services.app_settings_service import get_setting_int
+
+    return max(1, await get_setting_int(session, "event_pin_price"))
+
+
+def _aware(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def premium_free_boost_available(event: Event) -> bool:
+    """Можно ли поднять тусовку бесплатно (Premium, не чаще раза в час на событие)."""
+    if not event.boosted_at:
+        return True
+    return datetime.now(timezone.utc) - _aware(event.boosted_at) >= FREE_BOOST_COOLDOWN
+
+
+async def get_boost_price_for_user(
+    session: AsyncSession,
+    user: User,
+    event: Event | None = None,
+) -> int:
+    """Цена поднятия: Premium — 0 раз в час, иначе полная цена из настроек."""
+    base = await get_boost_base_price(session)
+    if is_premium(user) and event is not None and premium_free_boost_available(event):
+        return 0
+    return base
+
+
+async def get_pin_price_for_user(session: AsyncSession, user: User, hours: int = 1) -> int:
+    """Цена закрепа: Premium — скидка 50%."""
+    hours = max(1, min(hours, 24))
+    base = await get_pin_base_price(session) * hours
+    if is_premium(user):
+        return max(1, int(base * (1 - PREMIUM_PIN_DISCOUNT)))
+    return base
 
 
 async def count_active_events(session: AsyncSession, user_id: int) -> int:
@@ -40,21 +86,16 @@ async def can_create_event(session: AsyncSession, user) -> tuple[bool, str]:
     return True, ""
 
 
-def promo_price(base: int, user: User) -> int:
-    if is_premium(user):
-        return max(1, int(base * (1 - PREMIUM_PROMO_DISCOUNT)))
-    return base
-
-
 async def boost_event(session: AsyncSession, user: User, event: Event) -> int:
     if event.organizer_id != user.id:
         raise ValueError("Только организатор может поднять тусовку")
     if event.status != EventStatus.ACTIVE.value:
         raise ValueError("Тусовка не активна")
-    price = promo_price(BOOST_PRICE, user)
-    if user.sparks_balance < price:
-        raise ValueError("Недостаточно Искр")
-    await add_transaction(session, user.id, -price, "event_boost", event.id)
+    price = await get_boost_price_for_user(session, user, event)
+    if price > 0:
+        if user.sparks_balance < price:
+            raise ValueError("Недостаточно Искр")
+        await add_transaction(session, user.id, -price, "event_boost", event.id)
     event.boosted_at = datetime.now(timezone.utc)
     return price
 
@@ -65,15 +106,13 @@ async def pin_event(session: AsyncSession, user: User, event: Event, hours: int 
     if event.status != EventStatus.ACTIVE.value:
         raise ValueError("Тусовка не активна")
     hours = max(1, min(hours, 24))
-    price = promo_price(PIN_PRICE_PER_HOUR * hours, user)
+    price = await get_pin_price_for_user(session, user, hours=hours)
     if user.sparks_balance < price:
         raise ValueError("Недостаточно Искр")
     await add_transaction(session, user.id, -price, "event_pin", event.id)
     now = datetime.now(timezone.utc)
-    base = event.pinned_until if event.pinned_until and event.pinned_until > now else now
-    if base.tzinfo is None:
-        base = base.replace(tzinfo=timezone.utc)
-    event.pinned_until = base + timedelta(hours=hours)
+    base = event.pinned_until if event.pinned_until and _aware(event.pinned_until) > now else now
+    event.pinned_until = _aware(base) + timedelta(hours=hours)
     return price
 
 
@@ -116,6 +155,7 @@ async def find_events(
         select(Event)
         .where(and_(*clauses))
         .order_by(
+            case((Event.pinned_until > now, 1), else_=0).desc(),
             Event.pinned_until.desc().nullslast(),
             Event.boosted_at.desc().nullslast(),
             Event.id.desc(),
