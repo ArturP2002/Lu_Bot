@@ -161,7 +161,7 @@ async def prof_visible_save(message: Message, state: FSMContext, user: User, red
   user.visible_to = mapping[message.text]
   await state.clear()
   await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
-  await ensure_reply_menu(message, user)
+  await ensure_reply_menu(message, user, redis, force=True)
   await show_profile(message, user, redis=redis)
 
 

@@ -12,7 +12,6 @@ from bot.keyboards.keyboards import (
     contact_kb,
     gender_kb,
     language_kb,
-    limited_menu_kb,
     next_step_kb,
     rules_agree_kb,
     seeking_kb,
@@ -30,7 +29,14 @@ from bot.texts.i18n import (
     t,
 )
 from bot.texts.ui_labels import tx
-from bot.utils.messaging import replace_ui, safe_delete, send_ui, strip_inline_keyboard
+from bot.utils.messaging import (
+    delete_previous_ui,
+    ensure_reply_menu,
+    replace_ui,
+    safe_delete,
+    send_ui,
+    strip_inline_keyboard,
+)
 from config import get_settings
 from models import Goal, Referral, User
 from services.blogger_service import record_blogger_view
@@ -270,11 +276,13 @@ async def reg_finish(
     await process_referral_on_profile_complete(session, user)
     await state.clear()
     await safe_delete(callback.message)
-    await replace_ui(
+    await delete_previous_ui(callback.message.bot, redis, callback.message.chat.id)
+    await ensure_reply_menu(
         callback.message,
-        t(user, "REG_COMPLETE"),
-        reply_markup=limited_menu_kb(lang_of(user)),
-        redis=redis,
+        user,
+        redis,
+        text=t(user, "REG_COMPLETE"),
+        force=True,
     )
     if pending_event_id:
         from bot.handlers.events import open_event_by_id

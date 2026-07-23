@@ -17,6 +17,7 @@ from aiogram.types import (
 from redis.asyncio import Redis
 
 UI_MSG_KEY = "ui:msg:{chat_id}"
+REPLY_MENU_MSG_KEY = "ui:reply_menu:{chat_id}"
 UI_MSG_TTL = 60 * 60 * 24 * 7  # 7 дней
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,10 @@ def _is_invalid_file_id_error(exc: Exception) -> bool:
 
 def _ui_key(chat_id: int) -> str:
   return UI_MSG_KEY.format(chat_id=chat_id)
+
+
+def _reply_menu_key(chat_id: int) -> str:
+  return REPLY_MENU_MSG_KEY.format(chat_id=chat_id)
 
 
 async def safe_delete(
@@ -76,10 +81,35 @@ async def get_ui_message_id(redis: Redis | None, chat_id: int) -> int | None:
     return None
 
 
+async def remember_reply_menu_message(redis: Redis | None, chat_id: int, message_id: int) -> None:
+  """Сообщение-носитель Reply-меню — его нельзя удалять при смене экранов."""
+  if redis is None:
+    return
+  await redis.set(_reply_menu_key(chat_id), str(message_id), ex=UI_MSG_TTL)
+
+
+async def get_reply_menu_message_id(redis: Redis | None, chat_id: int) -> int | None:
+  if redis is None:
+    return None
+  raw = await redis.get(_reply_menu_key(chat_id))
+  if raw is None:
+    return None
+  try:
+    return int(raw)
+  except (TypeError, ValueError):
+    return None
+
+
 async def delete_previous_ui(bot: Bot, redis: Redis | None, chat_id: int) -> None:
-  """Удалить предыдущий UI-экран бота и сбросить ключ."""
+  """Удалить предыдущий UI-экран бота (не трогая носитель Reply-меню)."""
   msg_id = await get_ui_message_id(redis, chat_id)
   if msg_id is None:
+    return
+  reply_menu_id = await get_reply_menu_message_id(redis, chat_id)
+  if reply_menu_id is not None and msg_id == reply_menu_id:
+    # Носитель клавиатуры не удаляем — только снимаем UI-метку
+    if redis is not None:
+      await redis.delete(_ui_key(chat_id))
     return
   await safe_delete(bot=bot, chat_id=chat_id, message_id=msg_id)
   if redis is not None:
@@ -87,24 +117,56 @@ async def delete_previous_ui(bot: Bot, redis: Redis | None, chat_id: int) -> Non
 
 
 async def cleanup_reply_entry(message: Message, redis: Redis | None) -> None:
-  """При нажатии reply-кнопки: удалить сообщение пользователя и предыдущий UI."""
+  """При нажатии reply-кнопки: удалить сообщение пользователя и предыдущий UI-экран.
+
+  Удаляется 2 сообщения: (1) нажатие пользователя, (2) прошлый контент-экран.
+  Носитель Reply-меню не удаляется.
+  """
   await safe_delete(message)
   await delete_previous_ui(message.bot, redis, message.chat.id)
 
 
-async def ensure_reply_menu(message: Message, user) -> None:
-  """Заново закрепить Reply-клавиатуру главного меню.
+async def ensure_reply_menu(
+  message: Message,
+  user,
+  redis: Redis | None = None,
+  *,
+  text: str | None = None,
+  force: bool = False,
+) -> Message | None:
+  """Держать в чате сообщение-носитель Reply-меню (не удалять его при навигации).
 
-  Telegram не даёт повесить Reply + Inline на одно сообщение: шлём служебное
-  с меню и сразу удаляем — клавиатура остаётся (пока не придёт Remove/другая Reply).
+  Если носитель уже есть и force=False — ничего не шлём (клавиатура уже закреплена).
+  Если force=True или носителя нет — шлём новое с меню, старое удаляем после.
   """
   from bot.keyboards.keyboards import menu_kb_for
 
+  chat_id = message.chat.id
+  old_id = await get_reply_menu_message_id(redis, chat_id)
+  if old_id is not None and not force and text is None:
+    return None
+
+  body = text
+  if body is None:
+    from bot.texts.i18n import t
+    from bot.texts.ui_labels import tx
+
+    body = tx(user, "MENU_TITLE") if getattr(user, "verified", False) else t(user, "MENU_NEED_VERIFY")
+
   try:
-    sent = await message.answer("\u2060", reply_markup=menu_kb_for(user))
-    await safe_delete(sent)
+    sent = await message.answer(body, reply_markup=menu_kb_for(user))
   except Exception:
     logger.debug("ensure_reply_menu failed", exc_info=True)
+    return None
+
+  await remember_reply_menu_message(redis, chat_id, sent.message_id)
+  if old_id is not None and old_id != sent.message_id:
+    await safe_delete(bot=message.bot, chat_id=chat_id, message_id=old_id)
+    # если старый носитель ошибочно числился как UI — очистим
+    ui_id = await get_ui_message_id(redis, chat_id)
+    if ui_id is not None and ui_id == old_id and redis is not None:
+      await redis.delete(_ui_key(chat_id))
+  return sent
 
 
 async def _track(redis: Redis | None, msg: Message | None) -> Message | None:
