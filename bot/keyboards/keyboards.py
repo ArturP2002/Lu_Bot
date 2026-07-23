@@ -18,7 +18,7 @@ BTN_RATE = "Оценивать❤️"
 BTN_EVENTS = "Тусовки🥳"
 BTN_PROFILE = "Профиль👤"
 BTN_GOALS = "Цели✨"
-BTN_LUMA = "Лума🤵🏼‍♀️"
+BTN_LUMA = "Лу🤵🏼‍♀️"
 BTN_MENU = "Меню"
 
 MAIN_MENU_BUTTONS = [BTN_RATE, BTN_EVENTS, BTN_PROFILE, BTN_GOALS, BTN_LUMA]
