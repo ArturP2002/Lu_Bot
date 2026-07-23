@@ -141,23 +141,38 @@ async def _create_like_if_needed(session: AsyncSession, from_id: int, to_id: int
 
 
 @router.callback_query(F.data.startswith("rate:skip:"))
-@router.callback_query(F.data.startswith("rate:like:"))
-async def rate_like(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
-    target_id = int(callback.data.split(":")[-1])
+async def rate_skip(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
+    """Пропуск анкеты — больше не показывать в «Оценивать»."""
+    target_id = int(callback.data.rsplit(":", 1)[-1])
     target = await get_user_by_id(session, target_id)
     if not target:
         await callback.answer(t(user, "RATE_NOT_FOUND"))
         return
 
-    if callback.data.startswith("rate:like:"):
-        is_new = await _create_like_if_needed(session, user.id, target_id)
-        if is_new and await check_mutual_like(session, user, target):
-            await notify_match(callback.bot, user, target)
-            await notify_match(callback.bot, target, user)
-        elif is_new:
-            await notify_incoming_like(callback.bot, target, user)
-    else:
-        await record_profile_skip(session, user.id, target_id)
+    await record_profile_skip(session, user.id, target_id)
+    # Фиксируем сразу, чтобы пропуск не потерялся при ошибке дальше
+    await session.commit()
+
+    await show_next_profile(
+        callback.message, user, session, [target_id], redis=redis, edit=False, finalize_previous=True
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rate:like:"))
+async def rate_like(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
+    target_id = int(callback.data.rsplit(":", 1)[-1])
+    target = await get_user_by_id(session, target_id)
+    if not target:
+        await callback.answer(t(user, "RATE_NOT_FOUND"))
+        return
+
+    is_new = await _create_like_if_needed(session, user.id, target_id)
+    if is_new and await check_mutual_like(session, user, target):
+        await notify_match(callback.bot, user, target)
+        await notify_match(callback.bot, target, user)
+    elif is_new:
+        await notify_incoming_like(callback.bot, target, user)
 
     await show_next_profile(
         callback.message, user, session, [target_id], redis=redis, edit=False, finalize_previous=True
@@ -392,6 +407,8 @@ async def rate_report_reason(
         )
     )
     await callback.answer(t(user, "RATE_REPORT_DONE"))
+    await record_profile_skip(session, user.id, target_id)
+    await session.commit()
     await show_next_profile(
         callback.message, user, session, [target_id], redis=redis, edit=False, finalize_previous=True
     )

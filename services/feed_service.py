@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -11,13 +11,17 @@ from models import Like, ProfileSkip, Rating, User
 
 async def record_profile_skip(session: AsyncSession, from_user_id: int, to_user_id: int) -> bool:
     """Сохранить пропуск анкеты. True — запись создана."""
+    if from_user_id == to_user_id:
+        return False
     existing = await session.execute(
-        select(ProfileSkip).where(
+        select(ProfileSkip.id)
+        .where(
             ProfileSkip.from_user_id == from_user_id,
             ProfileSkip.to_user_id == to_user_id,
         )
+        .limit(1)
     )
-    if existing.scalar_one_or_none():
+    if existing.scalar_one_or_none() is not None:
         return False
     session.add(ProfileSkip(from_user_id=from_user_id, to_user_id=to_user_id))
     await session.flush()
@@ -35,16 +39,26 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
     exclude_ids = exclude_ids or []
     now = datetime.now(timezone.utc)
 
-    liked_subq = select(Like.to_user_id).where(Like.from_user_id == viewer.id)
-    skipped_subq = select(ProfileSkip.to_user_id).where(ProfileSkip.from_user_id == viewer.id)
+    liked = exists(
+        select(Like.id).where(
+            Like.from_user_id == viewer.id,
+            Like.to_user_id == User.id,
+        )
+    )
+    skipped = exists(
+        select(ProfileSkip.id).where(
+            ProfileSkip.from_user_id == viewer.id,
+            ProfileSkip.to_user_id == User.id,
+        )
+    )
 
     conditions = [
         User.id != viewer.id,
         User.profile_completed.is_(True),
         User.disabled.is_(False),
         User.is_banned.is_(False),
-        ~User.id.in_(liked_subq),
-        ~User.id.in_(skipped_subq),
+        ~liked,
+        ~skipped,
     ]
     if exclude_ids:
         conditions.append(~User.id.in_(exclude_ids))
