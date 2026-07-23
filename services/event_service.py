@@ -78,6 +78,26 @@ async def count_active_events(session: AsyncSession, user_id: int) -> int:
     return result.scalar() or 0
 
 
+async def count_successful_organized(session: AsyncSession, user_id: int) -> int:
+    """Тусовки, которые состоялись: набор закрыт и есть принятые участники."""
+    result = await session.execute(
+        select(func.count(Event.id)).where(
+            Event.organizer_id == user_id,
+            Event.status == EventStatus.CLOSED.value,
+            (Event.men_count + Event.women_count) > 0,
+        )
+    )
+    return int(result.scalar() or 0)
+
+
+async def sync_events_organized(session: AsyncSession, user: User) -> int:
+    """Обновить счётчик «организовал» по фактически состоявшимся тусовкам."""
+    count = await count_successful_organized(session, user.id)
+    if user.events_organized != count:
+        user.events_organized = count
+    return count
+
+
 async def can_create_event(session: AsyncSession, user) -> tuple[bool, str]:
     count = await count_active_events(session, user.id)
     limit = 3 if is_premium(user) else 1

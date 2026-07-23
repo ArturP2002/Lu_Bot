@@ -49,6 +49,7 @@ from services.event_service import (
     get_pin_price_for_user,
     pin_event,
     send_mass_invites,
+    sync_events_organized,
 )
 from services.luma_ai_service import moderate_text
 from services.sparks_service import has_paid_event_fee, pay_event_fee
@@ -344,7 +345,6 @@ async def ev_create_description(
     status=EventStatus.ACTIVE.value,
   )
   session.add(event)
-  user.events_organized += 1
   await state.clear()
   await cleanup_user_and_prompt(message, prompt_message_id=data.get("prompt_message_id"))
   await send_ui(
@@ -859,6 +859,7 @@ async def ev_close_ok(callback: CallbackQuery, user: User, session: AsyncSession
     await callback.answer(t(user, "EVENT_NOT_FOUND"), show_alert=True)
     return
   link = await close_event_and_invite(session, callback.bot, event)
+  await sync_events_organized(session, user)
   await safe_edit_text(callback.message, t(user, "EVENT_CLOSE_DONE", link=link), redis=redis)
   await callback.answer()
 
@@ -882,6 +883,7 @@ async def ev_delete(callback: CallbackQuery, user: User, session: AsyncSession, 
   event = await session.get(Event, event_id)
   if event and event.organizer_id == user.id:
     event.status = EventStatus.DELETED.value
+    await sync_events_organized(session, user)
     await safe_edit_text(callback.message, t(user, "EVENT_DELETED"), redis=redis)
   await callback.answer()
 

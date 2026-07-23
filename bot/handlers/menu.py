@@ -47,11 +47,13 @@ async def cmd_menu(message: Message, state: FSMContext, user: User, redis: Redis
 
 @router.message(F.text.in_(all_menu_labels("profile")))
 @router.message(StateFilter("*"), F.text.in_(all_menu_labels("profile")))
-async def menu_profile(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+async def menu_profile(
+  message: Message, state: FSMContext, user: User, session: AsyncSession, redis: Redis
+) -> None:
   from bot.handlers.profile import show_profile
   await state.clear()
   await delete_previous_ui(message.bot, redis, message.chat.id)
-  await show_profile(message, user, redis=redis)
+  await show_profile(message, user, session=session, redis=redis)
 
 
 @router.message(F.text.in_(all_menu_labels("rate")))

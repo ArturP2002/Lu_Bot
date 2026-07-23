@@ -24,7 +24,6 @@ from bot.utils.messaging import (
     edit_or_send,
     safe_edit_media,
     safe_edit_text,
-    send_ui,
     strip_inline_keyboard,
 )
 from models import Complaint, Like, Rating, User
@@ -111,6 +110,9 @@ async def show_next_profile(
     if not target:
         await edit_or_send(message, t(user, "RATE_EMPTY"), redis=redis, edit=edit, track=False)
         return
+    from services.event_service import sync_events_organized
+
+    await sync_events_organized(session, target)
     text = format_other_profile(target, lang_of(user))
     kb = rate_card_kb(target.id, lang_of(user))
     await edit_or_send(
@@ -316,31 +318,48 @@ async def rate_support_amount(
     anonymous = bool(data["anonymous"])
     try:
         await support_goal(session, user, target, amount, anonymous)
-        try:
-            if anonymous:
-                await message.bot.send_message(
-                    target.telegram_id,
-                    t(target, "RATE_SUPPORT_NOTIFY_ANON", amount=amount),
-                )
-            else:
-                await send_user_card(
-                    message.bot,
-                    target.telegram_id,
-                    user,
-                    prefix=t(target, "RATE_SUPPORT_NOTIFY_OPEN", amount=amount),
-                    reply_markup=rate_card_kb(user.id, lang_of(target)),
-                    lang=lang_of(target),
-                )
-        except Exception:
-            pass
     except ValueError as e:
-        await state.clear()
-        await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
-        await send_ui(message, service_err(user, e), redis=redis)
+        # Не скипаем анкету: при нехватке искр оставляем ввод суммы,
+        # чтобы после пополнения можно было сразу повторить.
+        await message.answer(service_err(user, e))
         return
+
+    try:
+        if anonymous:
+            await message.bot.send_message(
+                target.telegram_id,
+                t(target, "RATE_SUPPORT_NOTIFY_ANON", amount=amount),
+            )
+        else:
+            await send_user_card(
+                message.bot,
+                target.telegram_id,
+                user,
+                prefix=t(target, "RATE_SUPPORT_NOTIFY_OPEN", amount=amount),
+                reply_markup=rate_card_kb(user.id, lang_of(target)),
+                lang=lang_of(target),
+            )
+    except Exception:
+        pass
+
     await state.clear()
     await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
-    await show_next_profile(message, user, session, [target.id], redis=redis, edit=False)
+    from services.event_service import sync_events_organized
+
+    await sync_events_organized(session, target)
+    text = (
+        f"{t(user, 'RATE_SUPPORT_DONE', name=target.display_name or '—', amount=amount)}\n\n"
+        f"{format_other_profile(target, lang_of(user))}"
+    )
+    await edit_or_send(
+        message,
+        text,
+        photo_file_id=target.photo_file_id,
+        reply_markup=rate_card_kb(target.id, lang_of(user)),
+        redis=redis,
+        edit=False,
+        track=False,
+    )
 
 
 @router.callback_query(F.data.startswith("rate:report:"))

@@ -191,6 +191,10 @@ async def admin_user_detail(
     if not u:
         raise HTTPException(404, "Пользователь не найден")
 
+    from services.event_service import sync_events_organized
+
+    await sync_events_organized(session, u)
+
     txs = (
         await session.execute(
             select(SparksTransaction)

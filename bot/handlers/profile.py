@@ -55,9 +55,14 @@ async def show_profile(
   message: Message,
   user: User,
   *,
+  session: AsyncSession | None = None,
   redis: Redis | None = None,
   edit: bool = False,
 ) -> None:
+  if session is not None:
+    from services.event_service import sync_events_organized
+
+    await sync_events_organized(session, user)
   text = format_own_profile(user)
   kb = profile_kb(user.disabled, lang_of(user))
   photo_file_id = await resolve_photo_file_id(message.bot, user)
