@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     payment_provider: str = "yookassa"
     yookassa_shop_id: str = ""
     yookassa_shop_secret_id: str = ""
-    yookassa_return_url: str = "https://t.me/Lu_party_bot"
+    yookassa_return_url: str = ""
     spark_price_rub: float = 1.0
     spark_price_stars: float = 1.0
 
