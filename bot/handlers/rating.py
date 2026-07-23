@@ -27,7 +27,7 @@ from bot.utils.messaging import (
     strip_inline_keyboard,
 )
 from models import Complaint, Like, Rating, User
-from services.feed_service import get_next_profile, recalculate_rating
+from services.feed_service import get_next_profile, recalculate_rating, record_profile_skip
 from services.match_service import check_mutual_like
 from services.sparks_service import support_goal
 from services.user_service import get_user_by_id
@@ -156,6 +156,8 @@ async def rate_like(callback: CallbackQuery, user: User, session: AsyncSession, 
             await notify_match(callback.bot, target, user)
         elif is_new:
             await notify_incoming_like(callback.bot, target, user)
+    else:
+        await record_profile_skip(session, user.id, target_id)
 
     await show_next_profile(
         callback.message, user, session, [target_id], redis=redis, edit=False, finalize_previous=True

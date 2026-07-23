@@ -183,6 +183,18 @@ class Like(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ProfileSkip(Base):
+    """Пропуск анкеты в ленте «Оценивать» — больше не показывать."""
+
+    __tablename__ = "profile_skips"
+    __table_args__ = (UniqueConstraint("from_user_id", "to_user_id", name="uq_profile_skip_pair"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    from_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    to_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Rating(Base):
     """Оценка анкеты."""
 

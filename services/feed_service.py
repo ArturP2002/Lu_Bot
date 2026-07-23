@@ -6,12 +6,28 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from models import Like, Rating, User
+from models import Like, ProfileSkip, Rating, User
+
+
+async def record_profile_skip(session: AsyncSession, from_user_id: int, to_user_id: int) -> bool:
+    """Сохранить пропуск анкеты. True — запись создана."""
+    existing = await session.execute(
+        select(ProfileSkip).where(
+            ProfileSkip.from_user_id == from_user_id,
+            ProfileSkip.to_user_id == to_user_id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        return False
+    session.add(ProfileSkip(from_user_id=from_user_id, to_user_id=to_user_id))
+    await session.flush()
+    return True
 
 
 async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: list[int] | None = None) -> User | None:
     """Получить следующую анкету для просмотра.
 
+    Лайкнутые и пропущенные анкеты в ленту больше не попадают.
     Premium-анкеты чаще в топе: активный Premium выше остальных.
     """
     from services.app_settings_service import get_setting_bool
@@ -20,6 +36,7 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
     now = datetime.now(timezone.utc)
 
     liked_subq = select(Like.to_user_id).where(Like.from_user_id == viewer.id)
+    skipped_subq = select(ProfileSkip.to_user_id).where(ProfileSkip.from_user_id == viewer.id)
 
     conditions = [
         User.id != viewer.id,
@@ -27,6 +44,7 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
         User.disabled.is_(False),
         User.is_banned.is_(False),
         ~User.id.in_(liked_subq),
+        ~User.id.in_(skipped_subq),
     ]
     if exclude_ids:
         conditions.append(~User.id.in_(exclude_ids))
