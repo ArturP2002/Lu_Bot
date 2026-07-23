@@ -25,7 +25,7 @@ MAIN_MENU_BUTTONS = [BTN_RATE, BTN_EVENTS, BTN_PROFILE, BTN_GOALS, BTN_LUMA]
 
 
 def main_menu_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
-    """Reply-клавиатура главного меню."""
+    """Reply-клавиатура главного меню (всегда закреплена снизу)."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=lbl(lang, "rate", "menu")), KeyboardButton(text=lbl(lang, "events", "menu"))],
@@ -33,15 +33,24 @@ def main_menu_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
             [KeyboardButton(text=lbl(lang, "luma", "menu"))],
         ],
         resize_keyboard=True,
+        is_persistent=True,
     )
 
 
 def limited_menu_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
-    """Меню до верификации."""
+    """Меню до верификации (всегда закреплено снизу)."""
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=lbl(lang, "profile", "menu"))]],
         resize_keyboard=True,
+        is_persistent=True,
     )
+
+
+def menu_kb_for(user) -> ReplyKeyboardMarkup:
+    """Главное или ограниченное Reply-меню в зависимости от верификации."""
+    from bot.texts.i18n import lang_of
+
+    return main_menu_kb(lang_of(user)) if getattr(user, "verified", False) else limited_menu_kb(lang_of(user))
 
 
 def admin_webapp_kb(lang: str = "ru") -> InlineKeyboardMarkup:

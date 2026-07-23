@@ -92,6 +92,21 @@ async def cleanup_reply_entry(message: Message, redis: Redis | None) -> None:
   await delete_previous_ui(message.bot, redis, message.chat.id)
 
 
+async def ensure_reply_menu(message: Message, user) -> None:
+  """Заново закрепить Reply-клавиатуру главного меню.
+
+  Telegram не даёт повесить Reply + Inline на одно сообщение: шлём служебное
+  с меню и сразу удаляем — клавиатура остаётся (пока не придёт Remove/другая Reply).
+  """
+  from bot.keyboards.keyboards import menu_kb_for
+
+  try:
+    sent = await message.answer("\u2060", reply_markup=menu_kb_for(user))
+    await safe_delete(sent)
+  except Exception:
+    logger.debug("ensure_reply_menu failed", exc_info=True)
+
+
 async def _track(redis: Redis | None, msg: Message | None) -> Message | None:
   if msg is not None and redis is not None:
     await remember_ui_message(redis, msg.chat.id, msg.message_id)

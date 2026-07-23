@@ -7,10 +7,10 @@ from aiogram.types import MenuButtonCommands, Message
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.keyboards.keyboards import limited_menu_kb, main_menu_kb
+from bot.keyboards.keyboards import limited_menu_kb, menu_kb_for
 from bot.texts.i18n import lang_of, t
 from bot.texts.ui_labels import all_menu_labels, resolve_menu_action, tx
-from bot.utils.messaging import delete_previous_ui, replace_ui, send_ui
+from bot.utils.messaging import cleanup_reply_entry, ensure_reply_menu, replace_ui, send_ui
 from models import User
 
 router = Router()
@@ -27,8 +27,7 @@ async def send_menu(
     )
   except Exception:
     pass
-  lang = lang_of(user)
-  kb = main_menu_kb(lang) if user.verified else limited_menu_kb(lang)
+  kb = menu_kb_for(user)
   text = tx(user, "MENU_TITLE") if user.verified else t(user, "MENU_NEED_VERIFY")
   if replace:
     await replace_ui(message, text, reply_markup=kb, redis=redis)
@@ -36,12 +35,19 @@ async def send_menu(
     await send_ui(message, text, reply_markup=kb, redis=redis)
 
 
+async def _open_from_menu(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+  """Сброс FSM, удаление прошлых экранов, закрепление Reply-меню."""
+  await state.clear()
+  await cleanup_reply_entry(message, redis)
+  await ensure_reply_menu(message, user)
+
+
 @router.message(Command("menu"))
 @router.message(F.text.in_(all_menu_labels("menu")))
 @router.message(StateFilter("*"), F.text.in_(all_menu_labels("menu")))
 async def cmd_menu(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   await state.clear()
-  await delete_previous_ui(message.bot, redis, message.chat.id)
+  await cleanup_reply_entry(message, redis)
   await send_menu(message, user, redis=redis)
 
 
@@ -51,8 +57,7 @@ async def menu_profile(
   message: Message, state: FSMContext, user: User, session: AsyncSession, redis: Redis
 ) -> None:
   from bot.handlers.profile import show_profile
-  await state.clear()
-  await delete_previous_ui(message.bot, redis, message.chat.id)
+  await _open_from_menu(message, state, user, redis)
   await show_profile(message, user, session=session, redis=redis)
 
 
@@ -61,14 +66,13 @@ async def menu_profile(
 async def menu_rate(message: Message, state: FSMContext, user: User, session: AsyncSession, redis: Redis) -> None:
   if not user.verified:
     await state.clear()
-    await delete_previous_ui(message.bot, redis, message.chat.id)
+    await cleanup_reply_entry(message, redis)
     await send_ui(message, t(user, "MENU_NEED_VERIFY"), reply_markup=limited_menu_kb(lang_of(user)), redis=redis)
     return
   from bot.handlers.luma import clear_luma_browse
   from bot.handlers.rating import show_next_profile
 
-  await state.clear()
-  await delete_previous_ui(message.bot, redis, message.chat.id)
+  await _open_from_menu(message, state, user, redis)
   await clear_luma_browse(redis, user.id)
   await show_next_profile(message, user, session, redis=redis)
 
@@ -78,12 +82,11 @@ async def menu_rate(message: Message, state: FSMContext, user: User, session: As
 async def menu_goals(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   if not user.verified:
     await state.clear()
-    await delete_previous_ui(message.bot, redis, message.chat.id)
+    await cleanup_reply_entry(message, redis)
     await send_ui(message, t(user, "MENU_NEED_VERIFY"), reply_markup=limited_menu_kb(lang_of(user)), redis=redis)
     return
   from bot.handlers.goals import show_goal
-  await state.clear()
-  await delete_previous_ui(message.bot, redis, message.chat.id)
+  await _open_from_menu(message, state, user, redis)
   await show_goal(message, user, redis=redis)
 
 
@@ -92,14 +95,13 @@ async def menu_goals(message: Message, state: FSMContext, user: User, redis: Red
 async def menu_events(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   if not user.verified:
     await state.clear()
-    await delete_previous_ui(message.bot, redis, message.chat.id)
+    await cleanup_reply_entry(message, redis)
     await send_ui(message, t(user, "MENU_NEED_VERIFY"), reply_markup=limited_menu_kb(lang_of(user)), redis=redis)
     return
   from bot.handlers.events import show_events_menu
   from bot.handlers.luma import clear_luma_browse
 
-  await state.clear()
-  await delete_previous_ui(message.bot, redis, message.chat.id)
+  await _open_from_menu(message, state, user, redis)
   await clear_luma_browse(redis, user.id)
   await show_events_menu(message, user=user, redis=redis)
 
@@ -109,12 +111,11 @@ async def menu_events(message: Message, state: FSMContext, user: User, redis: Re
 async def menu_luma(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   if not user.verified:
     await state.clear()
-    await delete_previous_ui(message.bot, redis, message.chat.id)
+    await cleanup_reply_entry(message, redis)
     await send_ui(message, t(user, "MENU_NEED_VERIFY"), reply_markup=limited_menu_kb(lang_of(user)), redis=redis)
     return
   from bot.handlers.luma import show_luma
-  await state.clear()
-  await delete_previous_ui(message.bot, redis, message.chat.id)
+  await _open_from_menu(message, state, user, redis)
   await show_luma(message, user, redis=redis)
 
 

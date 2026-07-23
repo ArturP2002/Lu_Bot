@@ -33,6 +33,7 @@ from bot.texts.ui_labels import service_err, tx
 from bot.utils.messaging import (
     cleanup_user_and_prompt,
     edit_or_send,
+    ensure_reply_menu,
     resolve_photo_file_id,
     safe_delete,
     safe_edit_text,
@@ -160,6 +161,7 @@ async def prof_visible_save(message: Message, state: FSMContext, user: User, red
   user.visible_to = mapping[message.text]
   await state.clear()
   await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
+  await ensure_reply_menu(message, user)
   await show_profile(message, user, redis=redis)
 
 
