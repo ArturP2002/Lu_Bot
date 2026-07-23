@@ -100,7 +100,11 @@ async def withdraw_sparks(
         requisites = f"tg:{user.telegram_id}" + (f" @{user.username}" if user.username else "")
 
     withdraw_min = await get_setting_int(session, "withdraw_min")
-    fee_rate = 0.07 if is_premium(user) else await get_setting_float(session, "withdraw_fee_rate")
+    fee_rate = (
+        await get_setting_float(session, "withdraw_fee_rate_premium")
+        if is_premium(user)
+        else await get_setting_float(session, "withdraw_fee_rate")
+    )
 
     if amount < withdraw_min:
         raise ValueError(f"Минимальная сумма вывода — {withdraw_min} Искр")

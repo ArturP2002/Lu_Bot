@@ -30,8 +30,17 @@ async def get_bot_star_balance(bot: Bot) -> int:
         return 0
 
 
+def _gift_denominations(gifts: list) -> list[int]:
+    return sorted({int(g.star_count) for g in gifts if getattr(g, "star_count", 0) and g.star_count > 0})
+
+
 def _pick_gifts(gifts: list, target: int) -> list:
-    """Подобрать подарки на сумму target (жадно от дорогих к дешёвым, затем добор)."""
+    """Подобрать подарки на сумму target (жадно от дорогих к дешёвым, затем добор).
+
+    Важно: Telegram позволяет отправлять только готовые gift-пакеты с фиксированной
+    ценой в Stars (например 15/25/50…). Произвольную сумму вроде 10⭐ набрать
+    нельзя, если нет комбинации номиналов, дающей ровно target.
+    """
     available = sorted(
         [g for g in gifts if getattr(g, "star_count", 0) and g.star_count > 0],
         key=lambda g: g.star_count,
@@ -64,11 +73,7 @@ def _pick_gifts(gifts: list, target: int) -> list:
         remaining -= cheapest.star_count
 
     if remaining != 0:
-        # Не удалось набрать ровно — вернём лучший набор ≤ target
-        spent = target - remaining
-        if spent <= 0:
-            return []
-        # оставим как есть (частичная выплата недопустима) — fail
+        # Не удалось набрать ровно — частичная выплата недопустима
         return []
     return picked
 
@@ -103,14 +108,16 @@ async def payout_stars_via_gifts(
 
     picked = _pick_gifts(gifts, stars_amount)
     if not picked:
+        denoms = _gift_denominations(gifts)
+        denoms_txt = ", ".join(str(d) for d in denoms[:20]) if denoms else "список пуст"
         return StarsPayoutResult(
             ok=False,
             error=(
-                "Не удалось подобрать подарки на точную сумму. "
-                "Выплатите вручную или дождитесь подходящих gift-пакетов."
+                f"Не удалось подобрать подарки ровно на {stars_amount}⭐. "
+                f"Доступные номиналы gift: {denoms_txt}. "
+                "Выплатите вручную или выведите сумму, которую можно собрать из этих номиналов."
             ),
         )
-
     spent = 0
     sent = 0
     try:

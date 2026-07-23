@@ -112,8 +112,8 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "WITHDRAW_INFO": (
             "Вывод Искр только через Telegram Stars.\n"
-            "Минимум: 1000 Искр.\n"
-            "Комиссия: 15% (для Premium — 7%).\n\n"
+            "Минимум: {min} Искр.\n"
+            "Комиссия: {fee_pct}% (для Premium — {premium_fee_pct}%).\n\n"
             "После заявки Stars будут отправлены автоматически на ваш аккаунт."
         ),
         "RATE_EMPTY": "Пока новых анкет нет — загляни чуть позже ✨",
@@ -246,8 +246,8 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "WITHDRAW_INFO": (
             "Вывад Іскраў толькі праз Telegram Stars.\n"
-            "Мінімум: 1000 Іскраў.\n"
-            "Камісія: 15% (Premium — 7%).\n\n"
+            "Мінімум: {min} Іскраў.\n"
+            "Камісія: {fee_pct}% (Premium — {premium_fee_pct}%).\n\n"
             "Пасля заяўкі Stars будуць адпраўлены аўтаматычна."
         ),
         "RATE_EMPTY": "Пакуль новых анкет няма ✨",
@@ -355,8 +355,8 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "WITHDRAW_INFO": (
             "Вивід Іскор тільки через Telegram Stars.\n"
-            "Мінімум: 1000 Іскор.\n"
-            "Комісія: 15% (Premium — 7%).\n\n"
+            "Мінімум: {min} Іскор.\n"
+            "Комісія: {fee_pct}% (Premium — {premium_fee_pct}%).\n\n"
             "Після заявки Stars будуть надіслані автоматично."
         ),
         "RATE_EMPTY": "Поки нових анкет немає ✨",
@@ -464,8 +464,8 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "WITHDRAW_INFO": (
             "Ұшқынды тек Telegram Stars арқылы шығаруға болады.\n"
-            "Минимум: 1000 Ұшқын.\n"
-            "Комиссия: 15% (Premium — 7%).\n\n"
+            "Минимум: {min} Ұшқын.\n"
+            "Комиссия: {fee_pct}% (Premium — {premium_fee_pct}%).\n\n"
             "Өтінімнен кейін Stars автоматты түрде жіберіледі."
         ),
         "RATE_EMPTY": "Әзірге жаңа анкета жоқ ✨",

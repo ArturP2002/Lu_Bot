@@ -375,11 +375,19 @@ async def ref_blogger(callback: CallbackQuery, user: User, session: AsyncSession
 
 
 @router.callback_query(F.data == "prof:withdraw")
-async def prof_withdraw(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+async def prof_withdraw(callback: CallbackQuery, state: FSMContext, user: User, session: AsyncSession, redis: Redis) -> None:
+  from services.app_settings_service import get_setting_float, get_setting_int
+
   await state.set_state(SparksFlow.amount)
+  withdraw_min = await get_setting_int(session, "withdraw_min")
+  fee_rate = await get_setting_float(session, "withdraw_fee_rate")
+  premium_fee_rate = await get_setting_float(session, "withdraw_fee_rate_premium")
+  fee_pct = int(round(fee_rate * 100))
+  premium_fee_pct = int(round(premium_fee_rate * 100))
   prompt = await safe_edit_text(
     callback.message,
-    f"{t(user, 'WITHDRAW_INFO')}\n\n{tx(user, 'WITHDRAW_AMOUNT')}",
+    f"{t(user, 'WITHDRAW_INFO', min=withdraw_min, fee_pct=fee_pct, premium_fee_pct=premium_fee_pct)}\n\n"
+    f"{tx(user, 'WITHDRAW_AMOUNT')}",
     redis=redis,
   )
   await state.update_data(
