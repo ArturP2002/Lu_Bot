@@ -143,8 +143,11 @@ async def admin_users(
         term = f"%{q.strip()}%"
         filters = [User.display_name.ilike(term), User.username.ilike(term), User.city.ilike(term)]
         if q.strip().isdigit():
-            filters.append(User.telegram_id == int(q.strip()))
-            filters.append(User.id == int(q.strip()))
+            num = int(q.strip())
+            filters.append(User.telegram_id == num)
+            # User.id is Integer (int32); large Telegram IDs must not be compared to it
+            if num <= 2_147_483_647:
+                filters.append(User.id == num)
         stmt = select(User).where(or_(*filters)).order_by(User.id.desc()).limit(100)
 
     result = await session.execute(stmt)
