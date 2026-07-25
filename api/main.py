@@ -76,6 +76,28 @@ def _user_brief(u: User | None) -> dict | None:
     }
 
 
+def _event_payload(e: Event, organizer: User | None) -> dict:
+    return {
+        "id": e.id,
+        "title": e.title,
+        "status": e.status,
+        "city": e.city,
+        "address": e.address,
+        "event_date": e.event_date,
+        "event_time": e.event_time,
+        "price": e.price,
+        "men_needed": e.men_needed,
+        "women_needed": e.women_needed,
+        "men_count": e.men_count,
+        "women_count": e.women_count,
+        "category": e.category,
+        "description": e.description,
+        "photo_file_id": e.photo_file_id,
+        "organizer": _user_brief(organizer),
+        "created_at": str(e.created_at) if e.created_at else None,
+    }
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -664,28 +686,21 @@ async def admin_events(session: AsyncSession = Depends(get_session), _=Depends(a
     out = []
     for e in result.scalars().all():
         organizer = await session.get(User, e.organizer_id)
-        out.append(
-            {
-                "id": e.id,
-                "title": e.title,
-                "status": e.status,
-                "city": e.city,
-                "address": e.address,
-                "event_date": e.event_date,
-                "event_time": e.event_time,
-                "price": e.price,
-                "men_needed": e.men_needed,
-                "women_needed": e.women_needed,
-                "men_count": e.men_count,
-                "women_count": e.women_count,
-                "category": e.category,
-                "description": e.description,
-                "photo_file_id": e.photo_file_id,
-                "organizer": _user_brief(organizer),
-                "created_at": str(e.created_at) if e.created_at else None,
-            }
-        )
+        out.append(_event_payload(e, organizer))
     return out
+
+
+@app.get("/admin/events/{event_id}")
+async def admin_event_detail(
+    event_id: int,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(admin_auth),
+):
+    event = await session.get(Event, event_id)
+    if not event:
+        raise HTTPException(404, "Тусовка не найдена")
+    organizer = await session.get(User, event.organizer_id)
+    return _event_payload(event, organizer)
 
 
 class EventUpdate(BaseModel):

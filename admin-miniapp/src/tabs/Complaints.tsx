@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, formatName, shortDate, type ComplaintItem } from '../api'
+import { EventDetail } from '../components/EventDetail'
 import { EmptyState, ErrorState, LoadingState } from '../components/Shell'
 import { UserProfile } from '../components/UserProfile'
 import { COMPLAINT_TYPE, label } from '../labels'
@@ -14,6 +15,7 @@ export function Complaints({ toast }: Props) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<number | null>(null)
   const [viewUserId, setViewUserId] = useState<number | null>(null)
+  const [viewEventId, setViewEventId] = useState<number | null>(null)
 
   async function load() {
     setLoading(true)
@@ -65,6 +67,17 @@ export function Complaints({ toast }: Props) {
     )
   }
 
+  if (viewEventId) {
+    return (
+      <EventDetail
+        eventId={viewEventId}
+        toast={toast}
+        backLabel="← К жалобам"
+        onBack={() => setViewEventId(null)}
+      />
+    )
+  }
+
   if (loading) return <LoadingState />
   if (error) return <ErrorState message={error} onRetry={load} />
 
@@ -102,7 +115,15 @@ export function Complaints({ toast }: Props) {
                 </button>
               </>
             )}
-            {c.event_title && <> · Тусовка: {c.event_title}</>}
+            {c.event_id && (
+              <>
+                {' '}
+                · Тусовка:{' '}
+                <button type="button" className="text-link" onClick={() => setViewEventId(c.event_id!)}>
+                  {c.event_title || `Тусовка #${c.event_id}`}
+                </button>
+              </>
+            )}
           </div>
           <div className="row-body">{c.text}</div>
           <div className="row-actions">
@@ -122,6 +143,15 @@ export function Complaints({ toast }: Props) {
                 onClick={() => setViewUserId(c.reporter!.id)}
               >
                 Кто пожаловался
+              </button>
+            )}
+            {c.event_id && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={() => setViewEventId(c.event_id!)}
+              >
+                Тусовка
               </button>
             )}
             <button
