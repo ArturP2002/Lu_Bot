@@ -175,6 +175,13 @@ async def _track(redis: Redis | None, msg: Message | None) -> Message | None:
   return msg
 
 
+async def clear_reply_menu_tracking(redis: Redis | None, chat_id: int) -> None:
+  """Сбросить метку носителя Reply-меню (например, перед регистрацией)."""
+  if redis is None:
+    return
+  await redis.delete(_reply_menu_key(chat_id))
+
+
 async def send_ui(
   message: Message,
   text: str,
@@ -214,7 +221,28 @@ async def replace_ui(
   redis: Redis | None = None,
   parse_mode: str | None = None,
 ) -> Message:
-  """Заменить текущий UI-экран (удалить предыдущий и отправить новый)."""
+  """Заменить текущий UI-экран.
+
+  Для Reply-клавиатуры сначала шлём новое сообщение с кнопками, потом удаляем
+  старый экран — иначе клиент Telegram часто «теряет» клавиатуру.
+  """
+  if isinstance(reply_markup, ReplyKeyboardMarkup):
+    old_id = await get_ui_message_id(redis, message.chat.id)
+    sent = await send_ui(
+      message,
+      text,
+      photo_file_id=photo_file_id,
+      reply_markup=reply_markup,
+      redis=redis,
+      parse_mode=parse_mode,
+      track=True,
+    )
+    if old_id is not None and sent is not None and old_id != sent.message_id:
+      reply_menu_id = await get_reply_menu_message_id(redis, message.chat.id)
+      if reply_menu_id is None or old_id != reply_menu_id:
+        await safe_delete(bot=message.bot, chat_id=message.chat.id, message_id=old_id)
+    return sent
+
   await delete_previous_ui(message.bot, redis, message.chat.id)
   return await send_ui(
     message,

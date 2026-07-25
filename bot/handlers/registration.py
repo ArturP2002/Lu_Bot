@@ -30,6 +30,7 @@ from bot.texts.i18n import (
 )
 from bot.texts.ui_labels import tx
 from bot.utils.messaging import (
+    clear_reply_menu_tracking,
     delete_previous_ui,
     ensure_reply_menu,
     replace_ui,
@@ -113,6 +114,8 @@ async def cmd_start(
         except ValueError:
             pass
 
+    # Сбросить persistent-меню и показать кнопки выбора языка
+    await clear_reply_menu_tracking(redis, message.chat.id)
     await state.set_state(Registration.language)
     await replace_ui(message, t("ru", "REG_ASK_LANG"), reply_markup=language_kb(), redis=redis)
 

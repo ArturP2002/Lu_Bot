@@ -75,6 +75,7 @@ def language_kb() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="Українська"), KeyboardButton(text="Қазақша")],
         ],
         resize_keyboard=True,
+        is_persistent=True,
     )
 
 
@@ -85,6 +86,7 @@ def gender_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=labels[0]), KeyboardButton(text=labels[1])]],
         resize_keyboard=True,
+        is_persistent=True,
     )
 
 
@@ -95,6 +97,7 @@ def seeking_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=labels[0]), KeyboardButton(text=labels[1])]],
         resize_keyboard=True,
+        is_persistent=True,
     )
 
 
@@ -108,6 +111,7 @@ def visible_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
             [KeyboardButton(text=labels[2])],
         ],
         resize_keyboard=True,
+        is_persistent=True,
     )
 
 
@@ -117,7 +121,7 @@ def contact_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=t(lang, "BTN_SEND_CONTACT"), request_contact=True)]],
         resize_keyboard=True,
-        one_time_keyboard=True,
+        is_persistent=True,
     )
 
 
