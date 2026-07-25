@@ -412,20 +412,27 @@ async def ref_claim(callback: CallbackQuery, user: User, session: AsyncSession, 
 
 @router.callback_query(F.data == "ref:blogger")
 async def ref_blogger(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
-  profile = await apply_blogger(session, user)
-  bp = await get_or_create_blogger(session, user)
-  if profile.status == "pending":
-    text = t(user, "BLOGGER_PENDING")
-  else:
-    profiles = await count_completed_referrals(session, user.id)
-    text = t(
-      user,
-      "BLOGGER_INTRO",
-      link=blogger_link(user),
-      views=bp.views,
-      profiles=profiles,
-    )
-  await safe_edit_text(callback.message, text, redis=redis)
+  try:
+    profile = await apply_blogger(session, user)
+    bp = await get_or_create_blogger(session, user)
+    if profile.status == "pending":
+      text = t(user, "BLOGGER_PENDING")
+    else:
+      profiles = await count_completed_referrals(session, user.id)
+      text = t(
+        user,
+        "BLOGGER_INTRO",
+        link=blogger_link(user),
+        views=bp.views,
+        profiles=profiles,
+      )
+    await safe_edit_text(callback.message, text, redis=redis)
+  except Exception:
+    import logging
+
+    logging.getLogger(__name__).exception("ref_blogger failed for user %s", user.id)
+    await callback.answer("Не удалось открыть раздел. Попробуй ещё раз.", show_alert=True)
+    return
   await callback.answer()
 
 

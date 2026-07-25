@@ -81,6 +81,11 @@ async def _maybe_claim_view_rewards(session: AsyncSession, user: User, profile: 
 
 async def maybe_reward_blogger_profiles(session: AsyncSession, referrer: User) -> int:
     """За каждые 100 анкет по ссылке блогера — 300 искр. Возвращает начисленные искры."""
+    from sqlalchemy import func
+
+    from models import SparksTransaction
+    from services.referral_service import count_completed_referrals
+
     if referrer.referral_track != ReferralTrack.BLOGGER.value:
         return 0
     result = await session.execute(select(BloggerProfile).where(BloggerProfile.user_id == referrer.id))
@@ -88,11 +93,14 @@ async def maybe_reward_blogger_profiles(session: AsyncSession, referrer: User) -
     if not profile or profile.status != "approved":
         return 0
 
-    from services.referral_service import count_completed_referrals
-
     completed = await count_completed_referrals(session, referrer.id)
     batches_earned = completed // PROFILES_PER_REWARD
-    already = profile.profiles_reward_batches or 0
+    already = await session.scalar(
+        select(func.count(SparksTransaction.id)).where(
+            SparksTransaction.user_id == referrer.id,
+            SparksTransaction.tx_type == "blogger_profiles_100",
+        )
+    ) or 0
     if batches_earned <= already:
         return 0
 
@@ -106,7 +114,6 @@ async def maybe_reward_blogger_profiles(session: AsyncSession, referrer: User) -
             metadata=str(batch_no * PROFILES_PER_REWARD),
         )
         total += PROFILES_REWARD_SPARKS
-    profile.profiles_reward_batches = batches_earned
     return total
 
 
