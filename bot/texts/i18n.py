@@ -567,9 +567,14 @@ def t(lang_or_user: Any, key: str, **kwargs: Any) -> str:
     bucket = TEXTS.get(lang) or TEXTS[DEFAULT_LANG]
     text = bucket.get(key) or TEXTS[DEFAULT_LANG].get(key) or key
     if kwargs:
+        # Экранируем { } в значениях, иначе reason от ИИ с скобками ломает str.format
+        safe = {
+            k: str(v).replace("{", "{{").replace("}", "}}") if v is not None else ""
+            for k, v in kwargs.items()
+        }
         try:
-            return text.format(**kwargs)
-        except (KeyError, ValueError):
+            return text.format(**safe)
+        except (KeyError, ValueError, IndexError):
             return text
     return text
 

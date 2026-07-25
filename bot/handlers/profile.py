@@ -236,6 +236,40 @@ async def prof_bio_save(message: Message, state: FSMContext, user: User, redis: 
   await show_profile(message, user, redis=redis)
 
 
+@router.callback_query(F.data == "prof:city")
+async def prof_city_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  await _start_prompt(callback, state, ProfileEdit.city, tx(user, "CITY_ASK"), redis)
+
+
+@router.message(ProfileEdit.city, F.text)
+async def prof_city_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+  data = await state.get_data()
+  prompt_id = data.get("prompt_message_id")
+  user.city = message.text.strip()[:255]
+  await state.clear()
+  await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
+  await show_profile(message, user, redis=redis)
+
+
+@router.callback_query(F.data == "prof:bio")
+async def prof_bio_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  await _start_prompt(callback, state, ProfileEdit.bio, t(user, "REG_ASK_BIO"), redis)
+
+
+@router.message(ProfileEdit.bio, F.text)
+async def prof_bio_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+  data = await state.get_data()
+  prompt_id = data.get("prompt_message_id")
+  ok, reason = await moderate_text(message.text)
+  if not ok:
+    await message.answer(t(user, "MODERATION_BLOCKED", reason=reason))
+    return
+  user.bio = message.text.strip()[:1000]
+  await state.clear()
+  await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
+  await show_profile(message, user, redis=redis)
+
+
 @router.callback_query(F.data == "prof:premium")
 async def prof_premium(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
   lang = lang_of(user)

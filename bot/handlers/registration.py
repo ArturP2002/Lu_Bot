@@ -166,7 +166,12 @@ async def reg_photo(message: Message, state: FSMContext, user: User, redis: Redi
     file_id = message.photo[-1].file_id
     ok, reason = await moderate_telegram_photo(message.bot, file_id)
     if not ok:
-        await message.answer(t(user, "MODERATION_BLOCKED", reason=reason))
+        await safe_delete(message)
+        await send_ui(
+            message,
+            f"{t(user, 'MODERATION_BLOCKED', reason=reason)}\n\n{t(user, 'REG_ASK_PHOTO', name=user.display_name or '')}",
+            redis=redis,
+        )
         return
     user.photo_file_id = file_id
     await state.set_state(Registration.gender)
@@ -238,7 +243,12 @@ async def reg_city(message: Message, state: FSMContext, user: User, redis: Redis
 async def reg_bio(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
     ok, reason = await moderate_text(message.text)
     if not ok:
-        await message.answer(t(user, "MODERATION_BLOCKED", reason=reason))
+        await safe_delete(message)
+        await send_ui(
+            message,
+            f"{t(user, 'MODERATION_BLOCKED', reason=reason)}\n\n{t(user, 'REG_ASK_BIO')}",
+            redis=redis,
+        )
         return
     user.bio = message.text.strip()[:1000]
     await state.set_state(Registration.goal_title)
@@ -262,10 +272,17 @@ async def reg_goal_amount(
         await message.answer(t(user, "ERR_INVALID_INPUT"))
         return
     data = await state.get_data()
-    goal = Goal(user_id=user.id, title=data["goal_title"], target_sparks=int(message.text))
-    session.add(goal)
-    await session.flush()
-    await session.refresh(user, ["goal"])
+    title = (data.get("goal_title") or "").strip()[:255] or "Цель"
+    amount = int(message.text)
+    # Повторная регистрация: цель могла остаться с прошлой попытки
+    if user.goal:
+        user.goal.title = title
+        user.goal.target_sparks = amount
+        user.goal.collected_sparks = 0
+    else:
+        session.add(Goal(user_id=user.id, title=title, target_sparks=amount))
+        await session.flush()
+        await session.refresh(user, ["goal"])
     await state.set_state(Registration.preview)
     await safe_delete(message)
     await _send_profile_preview(message, user, redis=redis)
