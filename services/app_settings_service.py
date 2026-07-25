@@ -24,6 +24,7 @@ def env_defaults() -> dict[str, str]:
         "withdraw_fee_rate": str(s.withdraw_fee_rate),
         "withdraw_fee_rate_premium": str(s.withdraw_fee_rate_premium),
         "support_fee_rate": str(s.support_fee_rate),
+        "support_fee_rate_premium": str(s.support_fee_rate_premium),
         "rules_link_1": s.rules_link_1,
         "rules_link_2": s.rules_link_2,
         "yookassa_stub_enabled": "1",
@@ -107,7 +108,14 @@ SETTING_META: list[dict] = [
     {
         "key": "support_fee_rate",
         "label": "Комиссия поддержки цели",
-        "hint": "Для пользователей без Premium",
+        "hint": "Для пользователей без Premium, например 0.1 = 10%",
+        "type": "float",
+        "group": "fees",
+    },
+    {
+        "key": "support_fee_rate_premium",
+        "label": "Комиссия поддержки цели Premium",
+        "hint": "Для Premium, например 0.02 = 2%",
         "type": "float",
         "group": "fees",
     },

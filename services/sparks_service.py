@@ -49,7 +49,11 @@ async def support_goal(
     from models import Support
     from services.app_settings_service import get_setting_float
 
-    fee_rate = 0.0 if is_premium(sender) else await get_setting_float(session, "support_fee_rate")
+    fee_rate = (
+        await get_setting_float(session, "support_fee_rate_premium")
+        if is_premium(sender)
+        else await get_setting_float(session, "support_fee_rate")
+    )
     fee = int(amount * fee_rate)
     total_debit = amount + fee
 

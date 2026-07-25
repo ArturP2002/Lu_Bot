@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     webhook_secret: str = ""
     ai_daily_limit: int = 50
     support_fee_rate: float = 0.10
+    support_fee_rate_premium: float = 0.02
     withdraw_fee_rate: float = 0.15
     withdraw_fee_rate_premium: float = 0.07
     withdraw_min: int = 1000

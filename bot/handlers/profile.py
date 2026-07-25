@@ -288,10 +288,17 @@ async def prof_premium(callback: CallbackQuery, user: User, session: AsyncSessio
       parse_mode="HTML",
     )
   else:
-    from services.app_settings_service import get_setting_int
+    from services.app_settings_service import get_setting_float, get_setting_int
+    from services.event_service import PREMIUM_PIN_DISCOUNT
 
     premium_price = await get_setting_int(session, "premium_price")
-    text = f"{t(user, 'PREMIUM_TITLE')}\n\n{t(user, 'PREMIUM_TEXT')}"
+    withdraw_fee_pct = int(round(await get_setting_float(session, "withdraw_fee_rate_premium") * 100))
+    support_fee_pct = int(round(await get_setting_float(session, "support_fee_rate_premium") * 100))
+    pin_discount_pct = int(round(PREMIUM_PIN_DISCOUNT * 100))
+    text = (
+      f"{t(user, 'PREMIUM_TITLE')}\n\n"
+      f"{t(user, 'PREMIUM_TEXT', withdraw_fee_pct=withdraw_fee_pct, support_fee_pct=support_fee_pct, pin_discount_pct=pin_discount_pct)}"
+    )
     await safe_edit_text(callback.message, text, reply_markup=premium_kb(premium_price, lang), redis=redis)
   await callback.answer()
 
