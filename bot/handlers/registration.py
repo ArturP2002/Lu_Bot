@@ -40,7 +40,7 @@ from bot.utils.messaging import (
 from config import get_settings
 from models import Goal, Referral, User
 from services.blogger_service import record_blogger_view
-from services.luma_ai_service import moderate_text
+from services.luma_ai_service import moderate_telegram_photo, moderate_text
 from services.referral_service import process_referral_on_profile_complete
 
 router = Router()
@@ -163,7 +163,12 @@ async def reg_name(message: Message, state: FSMContext, user: User, redis: Redis
 
 @router.message(Registration.photo, F.photo)
 async def reg_photo(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-    user.photo_file_id = message.photo[-1].file_id
+    file_id = message.photo[-1].file_id
+    ok, reason = await moderate_telegram_photo(message.bot, file_id)
+    if not ok:
+        await message.answer(t(user, "MODERATION_BLOCKED", reason=reason))
+        return
+    user.photo_file_id = file_id
     await state.set_state(Registration.gender)
     await safe_delete(message)
     await replace_ui(message, t(user, "REG_ASK_GENDER"), reply_markup=gender_kb(lang_of(user)), redis=redis)

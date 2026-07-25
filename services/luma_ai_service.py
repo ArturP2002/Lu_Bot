@@ -692,7 +692,28 @@ async def ask_luma(session: AsyncSession, redis: Redis, user, message: str) -> s
 
 # --- AI-модерация контента ---
 
-BLOCK_CATEGORIES = ("porn", "drugs", "qr", "ads", "fraud")
+BLOCK_CATEGORIES = ("porn", "drugs", "qr", "ads", "fraud", "nude", "violence", "hate", "minors")
+
+TEXT_MODERATION_PROMPT = (
+    "Ты модератор описания анкеты dating/тусовки бота. "
+    "Запрещены: порно и интим-услуги/эскорт, наркотики, мошенничество, "
+    "навязчивая реклама и промо каналов/ссылок, QR/скам-приглашения, "
+    "оружие и призывы к насилию, разжигание ненависти, "
+    "любой контент с несовершеннолетними, поиск секса за деньги. "
+    "Обычное описание хобби, знакомств и тусовок — разрешено. "
+    'Ответь строго JSON: {"ok": true/false, "reason": "краткая категория на русском или пусто"}'
+)
+
+PHOTO_MODERATION_PROMPT = (
+    "Ты модератор фото анкеты dating/тусовки бота. Проверь изображение.\n"
+    "ЗАПРЕЩЕНО (ok=false):\n"
+    "1) Полностью голые люди: видны гениталии или полностью обнажённая грудь без белья/купальника. "
+    "Бельё, трусы, купальник, топ, частично открытая одежда — РАЗРЕШЕНЫ (ok=true).\n"
+    "2) Любые QR-коды на фото.\n"
+    "3) Явная порнография, наркотики, реклама/мошенничество.\n"
+    "Обычные портретные/повседневные фото — разрешены.\n"
+    'Ответь строго JSON: {"ok": true/false, "reason": "краткая причина на русском или пусто"}'
+)
 
 
 async def moderate_text(text: str) -> tuple[bool, str]:
@@ -721,14 +742,7 @@ async def moderate_text(text: str) -> tuple[bool, str]:
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Ты модератор. Проверь текст на: porn, drugs, qr-codes (как приглашение к скаму), "
-                        "ads (навязчивая реклама), fraud. Ответь JSON: "
-                        '{"ok": true/false, "reason": "категория или пусто"}'
-                    ),
-                },
+                {"role": "system", "content": TEXT_MODERATION_PROMPT},
                 {"role": "user", "content": text[:2000]},
             ],
             max_tokens=80,
@@ -763,13 +777,7 @@ async def moderate_photo(file_bytes: bytes | None = None, caption: str | None = 
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                "Проверь фото на порно, наркотики, QR-коды, рекламу, мошенничество. "
-                                'JSON: {"ok": true/false, "reason": "..."}'
-                            ),
-                        },
+                        {"type": "text", "text": PHOTO_MODERATION_PROMPT},
                         {
                             "type": "image_url",
                             "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
@@ -787,6 +795,22 @@ async def moderate_photo(file_bytes: bytes | None = None, caption: str | None = 
     except Exception as e:
         logger.warning("moderate_photo failed: %s", e)
         return True, ""
+
+
+async def moderate_telegram_photo(bot, file_id: str, caption: str | None = None) -> tuple[bool, str]:
+    """Скачать фото из Telegram и прогнать через moderate_photo."""
+    from io import BytesIO
+
+    try:
+        buf = BytesIO()
+        await bot.download(file_id, destination=buf)
+        file_bytes = buf.getvalue()
+    except Exception as e:
+        logger.warning("moderate_telegram_photo download failed: %s", e)
+        return True, ""
+    if not file_bytes:
+        return True, ""
+    return await moderate_photo(file_bytes=file_bytes, caption=caption)
 
 
 async def moderate_video(caption: str | None = None) -> tuple[bool, str]:

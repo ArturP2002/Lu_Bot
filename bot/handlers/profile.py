@@ -43,6 +43,7 @@ from config import get_settings
 from models import User, Verification
 from models.entities import VerificationStatus
 from services.blogger_service import apply_blogger, blogger_link, get_or_create_blogger
+from services.luma_ai_service import moderate_telegram_photo, moderate_text
 from services.referral_service import count_completed_referrals, get_available_rewards
 from services.sparks_service import withdraw_sparks
 from services.user_service import free_rating_reset_available, is_premium
@@ -190,7 +191,12 @@ async def prof_photo_start(callback: CallbackQuery, state: FSMContext, user: Use
 async def prof_photo_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   data = await state.get_data()
   prompt_id = data.get("prompt_message_id")
-  user.photo_file_id = message.photo[-1].file_id
+  file_id = message.photo[-1].file_id
+  ok, reason = await moderate_telegram_photo(message.bot, file_id)
+  if not ok:
+    await message.answer(t(user, "MODERATION_BLOCKED", reason=reason))
+    return
+  user.photo_file_id = file_id
   await state.clear()
   await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
   await show_profile(message, user, redis=redis)
@@ -220,6 +226,10 @@ async def prof_bio_start(callback: CallbackQuery, state: FSMContext, user: User,
 async def prof_bio_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   data = await state.get_data()
   prompt_id = data.get("prompt_message_id")
+  ok, reason = await moderate_text(message.text)
+  if not ok:
+    await message.answer(t(user, "MODERATION_BLOCKED", reason=reason))
+    return
   user.bio = message.text.strip()[:1000]
   await state.clear()
   await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
