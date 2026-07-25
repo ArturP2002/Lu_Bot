@@ -11,9 +11,11 @@ from models.entities import BloggerProfile, ReferralTrack
 from services.sparks_service import add_transaction
 
 settings = get_settings()
-COMMISSION_RATE = 0.20
+COMMISSION_RATE = 0.15  # 15% от покупок Premium рефералами
 VIEWS_REWARD_500K = 1000
 VIEWS_REWARD_1M = 2000
+PROFILES_PER_REWARD = 100
+PROFILES_REWARD_SPARKS = 300
 
 
 async def get_or_create_blogger(session: AsyncSession, user: User) -> BloggerProfile:
@@ -77,6 +79,37 @@ async def _maybe_claim_view_rewards(session: AsyncSession, user: User, profile: 
         await add_transaction(session, user.id, VIEWS_REWARD_1M, "blogger_views_1m")
 
 
+async def maybe_reward_blogger_profiles(session: AsyncSession, referrer: User) -> int:
+    """За каждые 100 анкет по ссылке блогера — 300 искр. Возвращает начисленные искры."""
+    if referrer.referral_track != ReferralTrack.BLOGGER.value:
+        return 0
+    result = await session.execute(select(BloggerProfile).where(BloggerProfile.user_id == referrer.id))
+    profile = result.scalar_one_or_none()
+    if not profile or profile.status != "approved":
+        return 0
+
+    from services.referral_service import count_completed_referrals
+
+    completed = await count_completed_referrals(session, referrer.id)
+    batches_earned = completed // PROFILES_PER_REWARD
+    already = profile.profiles_reward_batches or 0
+    if batches_earned <= already:
+        return 0
+
+    total = 0
+    for batch_no in range(already + 1, batches_earned + 1):
+        await add_transaction(
+            session,
+            referrer.id,
+            PROFILES_REWARD_SPARKS,
+            "blogger_profiles_100",
+            metadata=str(batch_no * PROFILES_PER_REWARD),
+        )
+        total += PROFILES_REWARD_SPARKS
+    profile.profiles_reward_batches = batches_earned
+    return total
+
+
 async def pay_blogger_commission(
     session: AsyncSession,
     buyer: User,
@@ -84,7 +117,9 @@ async def pay_blogger_commission(
     *,
     purpose: str = "purchase",
 ) -> int:
-    """20% от покупок рефералов блогеру (Premium, продвижение, платные функции)."""
+    """15% от покупки Premium рефералом — блогеру."""
+    if purpose != "premium":
+        return 0
     if sparks_spent <= 0 or not buyer.referred_by_id:
         return 0
     referrer = await session.get(User, buyer.referred_by_id)

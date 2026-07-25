@@ -134,7 +134,7 @@ export function Bloggers({ toast }: Props) {
     <div>
       <h2 className="section-title">Блогеры</h2>
       <p className="section-desc">
-        Заявки, просмотры и комиссия 20%
+        Заявки, просмотры и комиссия 15% с Premium
         {pendingCount ? ` · ${pendingCount} на проверке` : ''}
       </p>
 

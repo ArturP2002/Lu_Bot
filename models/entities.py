@@ -434,6 +434,7 @@ class BloggerProfile(Base):
     total_commission: Mapped[int] = mapped_column(Integer, default=0)
     reward_500k_claimed: Mapped[bool] = mapped_column(Boolean, default=False)
     reward_1m_claimed: Mapped[bool] = mapped_column(Boolean, default=False)
+    profiles_reward_batches: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

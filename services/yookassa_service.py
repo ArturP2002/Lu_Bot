@@ -184,12 +184,12 @@ async def complete_payment(
         reference_id=payment.id,
         metadata=f"yookassa:{payment.external_id}",
     )
-    # Комиссия блогеру 20% от покупки (в искрах от суммы покупки)
+    # Комиссия блогеру только с Premium (см. pay_blogger_commission)
     user = await session.get(User, payment.user_id)
     if user:
         from services.blogger_service import pay_blogger_commission
 
-        await pay_blogger_commission(session, user, payment.amount_sparks, purpose="buy_sparks")
+        await pay_blogger_commission(session, user, payment.amount_sparks, purpose=payment.purpose or "buy_sparks")
     return True
 
 

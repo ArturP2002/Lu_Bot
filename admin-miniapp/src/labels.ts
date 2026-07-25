@@ -82,6 +82,7 @@ export const TX_TYPE: Record<string, string> = {
   blogger_commission: 'Комиссия блогера',
   blogger_views_500k: 'Награда за 500 тыс. просмотров',
   blogger_views_1m: 'Награда за 1 млн просмотров',
+  blogger_profiles_100: 'Награда за 100 анкет по ссылке',
 }
 
 export const COMPLAINT_TYPE: Record<string, string> = {

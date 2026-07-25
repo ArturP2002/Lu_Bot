@@ -55,6 +55,9 @@ async def process_referral_on_profile_complete(session: AsyncSession, user: User
     referrer = await session.get(User, user.referred_by_id)
     if referrer:
         referrer.referral_count = await count_completed_referrals(session, referrer.id)
+        from services.blogger_service import maybe_reward_blogger_profiles
+
+        await maybe_reward_blogger_profiles(session, referrer)
 
 
 async def process_referral_on_verification(session: AsyncSession, user: User) -> None:

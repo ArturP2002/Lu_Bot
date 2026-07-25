@@ -417,11 +417,13 @@ async def ref_blogger(callback: CallbackQuery, user: User, session: AsyncSession
   if profile.status == "pending":
     text = t(user, "BLOGGER_PENDING")
   else:
+    profiles = await count_completed_referrals(session, user.id)
     text = t(
       user,
       "BLOGGER_INTRO",
       link=blogger_link(user),
       views=bp.views,
+      profiles=profiles,
     )
   await safe_edit_text(callback.message, text, redis=redis)
   await callback.answer()
