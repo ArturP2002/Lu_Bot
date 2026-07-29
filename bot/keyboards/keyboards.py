@@ -272,6 +272,15 @@ def withdraw_method_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     )
 
 
+def withdraw_username_kb(lang: str = "ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=lbl(lang, "wd_username_retry"), callback_data="wd:username:retry")],
+            [InlineKeyboardButton(text=lbl(lang, "back"), callback_data="wd:username:back")],
+        ]
+    )
+
+
 def rating_reset_kb(
     is_premium_user: bool,
     lang: str = "ru",

@@ -113,10 +113,10 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Комиссия поддержки цели — {support_fee_pct}%"
         ),
         "WITHDRAW_INFO": (
-            "Вывод Искр только через Telegram Stars.\n"
+            "Вывод Искр через Fragment (Telegram Stars).\n"
             "Минимум: {min} Искр.\n"
             "Комиссия: {fee_pct}% (для Premium — {premium_fee_pct}%).\n\n"
-            "После заявки Stars будут отправлены автоматически на ваш аккаунт."
+            "Нужен публичный @username в Telegram. Stars отправляются автоматически после заявки."
         ),
         "RATE_EMPTY": "Пока новых анкет нет — загляни чуть позже ✨",
         "RATE_NOT_FOUND": "Эту анкету уже не найти",
@@ -251,10 +251,10 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Камісія падтрымкі мэты — {support_fee_pct}%"
         ),
         "WITHDRAW_INFO": (
-            "Вывад Іскраў толькі праз Telegram Stars.\n"
+            "Вывад Іскраў праз Fragment (Telegram Stars).\n"
             "Мінімум: {min} Іскраў.\n"
             "Камісія: {fee_pct}% (Premium — {premium_fee_pct}%).\n\n"
-            "Пасля заяўкі Stars будуць адпраўлены аўтаматычна."
+            "Патрэбны публічны @username у Telegram."
         ),
         "RATE_EMPTY": "Пакуль новых анкет няма ✨",
         "RATE_NOT_FOUND": "Анкета не знойдзена",
@@ -369,10 +369,10 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Комісія підтримки цілі — {support_fee_pct}%"
         ),
         "WITHDRAW_INFO": (
-            "Вивід Іскор тільки через Telegram Stars.\n"
+            "Вивід Іскор через Fragment (Telegram Stars).\n"
             "Мінімум: {min} Іскор.\n"
             "Комісія: {fee_pct}% (Premium — {premium_fee_pct}%).\n\n"
-            "Після заявки Stars будуть надіслані автоматично."
+            "Потрібен публічний @username в Telegram."
         ),
         "RATE_EMPTY": "Поки нових анкет немає ✨",
         "RATE_NOT_FOUND": "Анкету не знайдено",
@@ -487,10 +487,10 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Мақсатты қолдау комиссиясы — {support_fee_pct}%"
         ),
         "WITHDRAW_INFO": (
-            "Ұшқынды тек Telegram Stars арқылы шығаруға болады.\n"
+            "Ұшқынды Fragment арқылы шығару (Telegram Stars).\n"
             "Минимум: {min} Ұшқын.\n"
             "Комиссия: {fee_pct}% (Premium — {premium_fee_pct}%).\n\n"
-            "Өтінімнен кейін Stars автоматты түрде жіберіледі."
+            "Telegram-дағы @username қажет."
         ),
         "RATE_EMPTY": "Әзірге жаңа анкета жоқ ✨",
         "RATE_NOT_FOUND": "Анкета табылмады",

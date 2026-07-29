@@ -13,3 +13,4 @@ arq>=0.26.0
 aiofiles>=24.1.0
 python-multipart>=0.0.17
 opencv-python-headless>=4.10.0
+pyfragment>=2026.2.0

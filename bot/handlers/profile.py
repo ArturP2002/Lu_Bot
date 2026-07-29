@@ -25,6 +25,7 @@ from bot.keyboards.keyboards import (
     seeking_kb,
     sparks_action_kb,
     visible_kb,
+    withdraw_username_kb,
 )
 from bot.states.states import ProfileEdit, SparksFlow, VerificationFlow
 from bot.texts.formatters import format_own_profile
@@ -46,7 +47,7 @@ from services.blogger_service import apply_blogger, blogger_link, get_or_create_
 from services.luma_ai_service import moderate_telegram_photo, moderate_text
 from services.referral_service import count_completed_referrals, get_available_rewards
 from services.sparks_service import withdraw_sparks
-from services.user_service import free_rating_reset_available, is_premium
+from services.user_service import free_rating_reset_available, is_premium, sync_telegram_username
 from services.verification_service import verify_video_note
 
 router = Router()
@@ -436,8 +437,13 @@ async def ref_blogger(callback: CallbackQuery, user: User, session: AsyncSession
   await callback.answer()
 
 
-@router.callback_query(F.data == "prof:withdraw")
-async def prof_withdraw(callback: CallbackQuery, state: FSMContext, user: User, session: AsyncSession, redis: Redis) -> None:
+async def _begin_withdraw_amount(
+  callback: CallbackQuery,
+  state: FSMContext,
+  user: User,
+  session: AsyncSession,
+  redis: Redis,
+) -> None:
   from services.app_settings_service import get_setting_float, get_setting_int
 
   await state.set_state(SparksFlow.amount)
@@ -457,30 +463,88 @@ async def prof_withdraw(callback: CallbackQuery, state: FSMContext, user: User, 
     withdraw_method="stars",
     prompt_message_id=prompt.message_id if prompt else callback.message.message_id,
   )
+
+
+async def _show_withdraw_username_required(
+  callback: CallbackQuery,
+  state: FSMContext,
+  user: User,
+  redis: Redis,
+) -> None:
+  await state.clear()
+  await safe_edit_text(
+    callback.message,
+    tx(user, "WITHDRAW_USERNAME_REQUIRED"),
+    reply_markup=withdraw_username_kb(lang_of(user)),
+    redis=redis,
+  )
+
+
+@router.callback_query(F.data == "prof:withdraw")
+async def prof_withdraw(callback: CallbackQuery, state: FSMContext, user: User, session: AsyncSession, redis: Redis) -> None:
+  sync_telegram_username(user, callback.from_user.username)
+  if not user.username:
+    await _show_withdraw_username_required(callback, state, user, redis)
+    await callback.answer()
+    return
+  await _begin_withdraw_amount(callback, state, user, session, redis)
+  await callback.answer()
+
+
+@router.callback_query(F.data == "wd:username:retry")
+async def withdraw_username_retry(
+  callback: CallbackQuery, state: FSMContext, user: User, session: AsyncSession, redis: Redis
+) -> None:
+  sync_telegram_username(user, callback.from_user.username)
+  if not user.username:
+    await callback.answer(tx(user, "WITHDRAW_USERNAME_STILL_MISSING"), show_alert=True)
+    return
+  await _begin_withdraw_amount(callback, state, user, session, redis)
+  await callback.answer(tx(user, "WITHDRAW_USERNAME_FOUND", username=user.username))
+
+
+@router.callback_query(F.data == "wd:username:back")
+async def withdraw_username_back(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  await state.clear()
+  await show_profile(callback.message, user, redis=redis, edit=True)
   await callback.answer()
 
 
 @router.callback_query(F.data.startswith("wd:method:"))
-async def withdraw_method_chosen(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+async def withdraw_method_chosen(
+  callback: CallbackQuery, state: FSMContext, user: User, session: AsyncSession, redis: Redis
+) -> None:
+  method = callback.data.rsplit(":", 1)[-1]
+  if method == "stars":
+    sync_telegram_username(user, callback.from_user.username)
+    if not user.username:
+      await _show_withdraw_username_required(callback, state, user, redis)
+      await callback.answer()
+      return
+    await _begin_withdraw_amount(callback, state, user, session, redis)
+    await callback.answer()
+    return
+
   await state.set_state(SparksFlow.amount)
   prompt = await safe_edit_text(callback.message, tx(user, "WITHDRAW_AMOUNT"), redis=redis)
   await state.update_data(
     flow="withdraw",
-    withdraw_method="stars",
+    withdraw_method="requisites",
     prompt_message_id=prompt.message_id if prompt else callback.message.message_id,
   )
   await callback.answer()
 
 
 @router.callback_query(F.data == "prof:sparks:amount")
-async def prof_sparks_amount(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
-  await state.set_state(SparksFlow.amount)
-  prompt = await safe_edit_text(callback.message, tx(user, "WITHDRAW_AMOUNT"), redis=redis)
-  await state.update_data(
-    flow="withdraw",
-    withdraw_method="stars",
-    prompt_message_id=prompt.message_id if prompt else callback.message.message_id,
-  )
+async def prof_sparks_amount(
+  callback: CallbackQuery, state: FSMContext, user: User, session: AsyncSession, redis: Redis
+) -> None:
+  sync_telegram_username(user, callback.from_user.username)
+  if not user.username:
+    await _show_withdraw_username_required(callback, state, user, redis)
+    await callback.answer()
+    return
+  await _begin_withdraw_amount(callback, state, user, session, redis)
   await callback.answer()
 
 
@@ -500,7 +564,9 @@ async def sparks_amount(
     return
 
   if data.get("flow") == "withdraw":
-    from services.app_settings_service import get_setting_int
+    from services.app_settings_service import get_setting_float, get_setting_int
+
+    sync_telegram_username(user, message.from_user.username)
 
     withdraw_min = await get_setting_int(session, "withdraw_min")
     if amount < withdraw_min:
@@ -508,6 +574,30 @@ async def sparks_amount(
       return
     if user.sparks_balance < amount:
       await message.answer(t(user, "ERR_NOT_ENOUGH_SPARKS"))
+      return
+
+    if not user.username:
+      await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
+      await state.clear()
+      await send_ui(
+        message,
+        tx(user, "WITHDRAW_USERNAME_REQUIRED"),
+        reply_markup=withdraw_username_kb(lang),
+        redis=redis,
+      )
+      return
+    if not settings.fragment_configured:
+      await message.answer(tx(user, "ERR_FRAGMENT_NOT_CONFIGURED"))
+      return
+
+    fee_rate = (
+      await get_setting_float(session, "withdraw_fee_rate_premium")
+      if is_premium(user)
+      else await get_setting_float(session, "withdraw_fee_rate")
+    )
+    net = amount - int(amount * fee_rate)
+    if net < settings.fragment_min_stars:
+      await message.answer(tx(user, "WITHDRAW_FRAGMENT_MIN", min=settings.fragment_min_stars))
       return
 
     method = "stars"
@@ -550,19 +640,26 @@ async def _create_withdraw_and_maybe_pay(
   status_line = ""
   if method == "stars":
     from models import WithdrawRequest
-    from services.stars_payout_service import payout_stars_via_gifts
+    from services.fragment_payout_service import payout_stars_via_fragment
 
     req = await session.get(WithdrawRequest, req_id)
-    result = await payout_stars_via_gifts(
-      message.bot,
-      user.telegram_id,
+    result = await payout_stars_via_fragment(
+      user.username,
       net,
       note=f"LUMA: вывод #{req_id}",
     )
     if result.ok and req:
       req.status = "completed"
-      req.payout_meta = f"gifts={result.gifts_sent};stars={result.stars_spent}"
-      status_line = tx(user, "WITHDRAW_STARS_OK", gifts=result.gifts_sent, stars=result.stars_spent)
+      req.payout_meta = (
+        f"fragment;stars={result.stars_sent};tx={result.transaction_id or ''};"
+        f"user={result.recipient_username or user.username}"
+      )
+      status_line = tx(
+        user,
+        "WITHDRAW_STARS_OK",
+        stars=result.stars_sent,
+        tx_id=result.transaction_id or "—",
+      )
     elif req:
       req.status = "pending"
       req.payout_meta = result.error

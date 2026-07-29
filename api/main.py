@@ -781,25 +781,22 @@ async def resolve_withdraw(
     user = await session.get(User, req.user_id)
 
     if body.decision == "completed":
-        # Для Stars — реальная выплата подарками, если ещё не выполнена
+        # Для Stars — реальная выплата через Fragment, если ещё не выполнена
         method = getattr(req, "method", None) or "requisites"
-        if method == "stars" and user and settings.bot_token:
-            from aiogram import Bot
-            from services.stars_payout_service import payout_stars_via_gifts
+        if method == "stars" and user:
+            from services.fragment_payout_service import payout_stars_via_fragment
 
-            bot = Bot(token=settings.bot_token)
-            try:
-                result = await payout_stars_via_gifts(
-                    bot,
-                    user.telegram_id,
-                    req.net_amount,
-                    note=f"LUMA withdraw #{req.id}",
-                )
-            finally:
-                await bot.session.close()
+            result = await payout_stars_via_fragment(
+                user.username,
+                req.net_amount,
+                note=f"LUMA withdraw #{req.id}",
+            )
             if not result.ok:
-                raise HTTPException(400, f"Stars payout failed: {result.error}")
-            req.payout_meta = f"gifts={result.gifts_sent};stars={result.stars_spent}"
+                raise HTTPException(400, f"Fragment payout failed: {result.error}")
+            req.payout_meta = (
+                f"fragment;stars={result.stars_sent};tx={result.transaction_id or ''};"
+                f"user={result.recipient_username or user.username}"
+            )
         req.status = "completed"
         notify_text = (
             f"✅ Вывод {req.amount} Искр выполнен.\n"

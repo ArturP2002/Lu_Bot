@@ -9,3 +9,4 @@ test.db
 admin-miniapp/node_modules/
 admin-miniapp/dist/
 .DS_Store
+docs/

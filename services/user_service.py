@@ -49,12 +49,21 @@ async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int) -> Us
     return result.scalar_one_or_none()
 
 
+def sync_telegram_username(user: User, username: str | None) -> bool:
+    """Синхронизировать @username пользователя из Telegram."""
+    normalized = (username or "").strip().lstrip("@") or None
+    current = (user.username or "").strip().lstrip("@") or None
+    if normalized == current:
+        return False
+    user.username = normalized
+    return True
+
+
 async def get_or_create_user(session: AsyncSession, telegram_id: int, username: str | None = None) -> User:
     """Получить или создать пользователя."""
     user = await get_user_by_telegram_id(session, telegram_id)
     if user:
-        if username and user.username != username:
-            user.username = username
+        sync_telegram_username(user, username)
         return user
 
     code = generate_referral_code()

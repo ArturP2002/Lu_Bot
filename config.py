@@ -41,6 +41,17 @@ class Settings(BaseSettings):
     spark_price_rub: float = 1.0
     spark_price_stars: float = 1.0
 
+    # Fragment — выплата Stars при выводе Искр
+    fragment_ton_seed: str = ""
+    fragment_tonapi_key: str = ""
+    fragment_wallet_version: str = "V5R1"
+    fragment_stel_ssid: str = ""
+    fragment_stel_dt: str = "-180"
+    fragment_stel_token: str = ""
+    fragment_stel_ton_token: str = ""
+    fragment_show_sender: bool = False
+    fragment_min_stars: int = 50
+
     @property
     def admin_id_list(self) -> List[int]:
         """Список Telegram ID администраторов."""
@@ -52,6 +63,17 @@ class Settings(BaseSettings):
     def yookassa_configured(self) -> bool:
         """Есть ли реальные креды ЮKassa."""
         return bool(self.yookassa_shop_id.strip() and self.yookassa_shop_secret_id.strip())
+
+    @property
+    def fragment_configured(self) -> bool:
+        """Есть ли креды Fragment для автовыплат Stars."""
+        return bool(
+            self.fragment_ton_seed.strip()
+            and self.fragment_tonapi_key.strip()
+            and self.fragment_stel_ssid.strip()
+            and self.fragment_stel_token.strip()
+            and self.fragment_stel_ton_token.strip()
+        )
 
 
 @lru_cache

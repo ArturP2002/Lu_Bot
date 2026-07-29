@@ -57,6 +57,12 @@ INLINE: dict[str, dict[str, str]] = {
     "reset_rating_free": {"ru": "Сбросить рейтинг бесплатно", "be": "Скінуць рэйтынг бясплатна", "uk": "Скинути рейтинг безкоштовно", "kk": "Рейтингті тегін тастау"},
     "wd_stars": {"ru": "⭐ Telegram Stars", "be": "⭐ Telegram Stars", "uk": "⭐ Telegram Stars", "kk": "⭐ Telegram Stars"},
     "wd_requisites": {"ru": "💳 Реквизиты", "be": "💳 Рэквізіты", "uk": "💳 Реквізити", "kk": "💳 Реквизиттер"},
+    "wd_username_retry": {
+        "ru": "✅ Готово, проверить",
+        "be": "✅ Гатова, праверыць",
+        "uk": "✅ Готово, перевірити",
+        "kk": "✅ Дайын, тексеру",
+    },
     "like": {"ru": "❤️ Лайк", "be": "❤️ Лайк", "uk": "❤️ Лайк", "kk": "❤️ Лайк"},
     "comment": {"ru": "💬 С комментарием", "be": "💬 З каментарыем", "uk": "💬 З коментарем", "kk": "💬 Пікірмен"},
     "support": {"ru": "⚡ Поддержать", "be": "⚡ Падтрымаць", "uk": "⚡ Підтримати", "kk": "⚡ Қолдау"},
@@ -124,7 +130,7 @@ INLINE: dict[str, dict[str, str]] = {
 EXTRA_TEXTS: dict[str, dict[str, str]] = {
     "ru": {
         "MENU_TITLE": "Меню:",
-        "WITHDRAW_CHOOSE_METHOD": "Как вывести Искры?\n\n⭐ Telegram Stars — выплата подарками Stars на твой аккаунт\n💳 Реквизиты — карта / телефон / другой способ",
+        "WITHDRAW_CHOOSE_METHOD": "Как вывести Искры?\n\n⭐ Telegram Stars — выплата через Fragment на @username\n💳 Реквизиты — карта / телефон / другой способ",
         "WITHDRAW_AMOUNT": "Укажи количество Искр для вывода:",
         "WITHDRAW_CREATED_STARS": (
             "Заявка #{id}: вывод {amount} Искр через Stars.\n"
@@ -136,8 +142,21 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
             "К выплате: {net} (комиссия {fee}).\n"
             "Обработка до 24 часов."
         ),
-        "WITHDRAW_STARS_OK": "✅ Stars выплачены ({gifts} подарков, {stars}⭐).",
-        "WITHDRAW_STARS_PENDING": "⏳ Автовыплата Stars не прошла: {error}\nАдмин обработает заявку вручную.",
+        "WITHDRAW_STARS_OK": "✅ {stars}⭐ отправлены через Fragment (tx: {tx_id}).",
+        "WITHDRAW_STARS_PENDING": "⏳ Автовыплата через Fragment не прошла: {error}\nАдмин обработает заявку вручную.",
+        "WITHDRAW_FRAGMENT_MIN": "После комиссии к выплате должно остаться минимум {min} Stars (ограничение Fragment).",
+        "WITHDRAW_USERNAME_REQUIRED": (
+            "Для вывода Stars нужен публичный @username в Telegram.\n\n"
+            "Как установить:\n"
+            "1. Telegram → Настройки → Имя пользователя\n"
+            "2. Придумай и сохрани @username (латиница, цифры, _)\n"
+            "3. Вернись сюда и нажми «Готово, проверить»\n\n"
+            "Без @username Fragment не сможет отправить Stars на твой аккаунт."
+        ),
+        "WITHDRAW_USERNAME_STILL_MISSING": "Username пока не найден. Установи @username в настройках Telegram и нажми «Готово, проверить» снова.",
+        "WITHDRAW_USERNAME_FOUND": "Отлично! Найден @{username}. Укажи сумму вывода.",
+        "ERR_NO_USERNAME": "Для вывода Stars нужен публичный @username в Telegram. Установи его в настройках Telegram и снова открой бота.",
+        "ERR_FRAGMENT_NOT_CONFIGURED": "Автовыплата через Fragment временно недоступна. Напиши в поддержку.",
         "WITHDRAW_ASK_REQUISITES": "Укажи реквизиты (карта / телефон / другой способ).\nСумма: {amount} Искр",
         "EVENT_ASK_CATEGORY": "Выбери тематику тусовки:",
         "EVENT_CREATED": "Тусовка «{title}» создана!",
@@ -272,12 +291,24 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
     },
     "be": {
         "MENU_TITLE": "Меню:",
-        "WITHDRAW_CHOOSE_METHOD": "Як вывесці Іскры?\n\n⭐ Stars — на твой акаўнт\n💳 Рэквізіты — карта / тэлефон",
+        "WITHDRAW_CHOOSE_METHOD": "Як вывесці Іскры?\n\n⭐ Stars — праз Fragment на @username\n💳 Рэквізіты — карта / тэлефон",
         "WITHDRAW_AMOUNT": "Колькі Іскраў вывесці:",
         "WITHDRAW_CREATED_STARS": "Заяўка #{id}: {amount} Іскраў праз Stars. Да выплаты: {net} (камісія {fee}).\n{status_line}",
         "WITHDRAW_CREATED_REQ": "Заяўка #{id}: {amount} Іскраў на рэквізіты. Да выплаты: {net} (камісія {fee}).",
-        "WITHDRAW_STARS_OK": "✅ Stars выплачаны ({gifts} падарункаў, {stars}⭐).",
-        "WITHDRAW_STARS_PENDING": "⏳ Аўтавыплата не прайшла: {error}",
+        "WITHDRAW_STARS_OK": "✅ {stars}⭐ адправлены праз Fragment (tx: {tx_id}).",
+        "WITHDRAW_STARS_PENDING": "⏳ Аўтавыплата праз Fragment не прайшла: {error}",
+        "WITHDRAW_FRAGMENT_MIN": "Пасля камісіі да выплаты павінна застацца мінімум {min} Stars.",
+        "WITHDRAW_USERNAME_REQUIRED": (
+            "Для вываду Stars патрэбны публічны @username у Telegram.\n\n"
+            "Як усталяваць:\n"
+            "1. Telegram → Налады → Імя карыстальніка\n"
+            "2. Прыдумай і захавай @username\n"
+            "3. Вярніся сюды і націсні «Гатова, праверыць»"
+        ),
+        "WITHDRAW_USERNAME_STILL_MISSING": "Username пакуль не знойдзены. Усталюй @username і націсні «Гатова, праверыць».",
+        "WITHDRAW_USERNAME_FOUND": "Выдатна! Знойдзены @{username}. Укажы суму вываду.",
+        "ERR_NO_USERNAME": "Для вываду Stars патрэбны публічны @username у Telegram.",
+        "ERR_FRAGMENT_NOT_CONFIGURED": "Аўтавыплата праз Fragment часова недоступная.",
         "WITHDRAW_ASK_REQUISITES": "Укажы рэквізіты. Сума: {amount} Іскраў",
         "EVENT_ASK_CATEGORY": "Абяры тэматыку тусоўкі:",
         "EVENT_CREATED": "Тусоўка «{title}» створана!",
@@ -407,12 +438,24 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
     },
     "uk": {
         "MENU_TITLE": "Меню:",
-        "WITHDRAW_CHOOSE_METHOD": "Як вивести Іскри?\n\n⭐ Stars — на твій акаунт\n💳 Реквізити — карта / телефон",
+        "WITHDRAW_CHOOSE_METHOD": "Як вивести Іскри?\n\n⭐ Stars — через Fragment на @username\n💳 Реквізити — карта / телефон",
         "WITHDRAW_AMOUNT": "Скільки Іскор вивести:",
         "WITHDRAW_CREATED_STARS": "Заявка #{id}: {amount} Іскор через Stars. До виплати: {net} (комісія {fee}).\n{status_line}",
         "WITHDRAW_CREATED_REQ": "Заявка #{id}: {amount} Іскор на реквізити. До виплати: {net} (комісія {fee}).",
-        "WITHDRAW_STARS_OK": "✅ Stars виплачено ({gifts} подарунків, {stars}⭐).",
-        "WITHDRAW_STARS_PENDING": "⏳ Автовиплата не пройшла: {error}",
+        "WITHDRAW_STARS_OK": "✅ {stars}⭐ надіслано через Fragment (tx: {tx_id}).",
+        "WITHDRAW_STARS_PENDING": "⏳ Автовиплата через Fragment не пройшла: {error}",
+        "WITHDRAW_FRAGMENT_MIN": "Після комісії до виплати має залишитися мінімум {min} Stars.",
+        "WITHDRAW_USERNAME_REQUIRED": (
+            "Для виводу Stars потрібен публічний @username в Telegram.\n\n"
+            "Як встановити:\n"
+            "1. Telegram → Налаштування → Ім'я користувача\n"
+            "2. Придумай і збережи @username\n"
+            "3. Повернись сюди і натисни «Готово, перевірити»"
+        ),
+        "WITHDRAW_USERNAME_STILL_MISSING": "Username поки не знайдено. Встанови @username і натисни «Готово, перевірити».",
+        "WITHDRAW_USERNAME_FOUND": "Чудово! Знайдено @{username}. Вкажи суму виводу.",
+        "ERR_NO_USERNAME": "Для виводу Stars потрібен публічний @username в Telegram.",
+        "ERR_FRAGMENT_NOT_CONFIGURED": "Автовиплата через Fragment тимчасово недоступна.",
         "WITHDRAW_ASK_REQUISITES": "Вкажи реквізити. Сума: {amount} Іскор",
         "EVENT_ASK_CATEGORY": "Обери тематику тусовки:",
         "EVENT_CREATED": "Тусовку «{title}» створено!",
@@ -542,12 +585,24 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
     },
     "kk": {
         "MENU_TITLE": "Меню:",
-        "WITHDRAW_CHOOSE_METHOD": "Ұшқынды қалай шығарамыз?\n\n⭐ Stars — аккаунтыңа\n💳 Реквизиттер — карта / телефон",
+        "WITHDRAW_CHOOSE_METHOD": "Ұшқынды қалай шығарамыз?\n\n⭐ Stars — Fragment арқылы @username-ке\n💳 Реквизиттер — карта / телефон",
         "WITHDRAW_AMOUNT": "Қанша Ұшқын шығару керек:",
         "WITHDRAW_CREATED_STARS": "Өтінім #{id}: {amount} Ұшқын Stars арқылы. Төлем: {net} (комиссия {fee}).\n{status_line}",
         "WITHDRAW_CREATED_REQ": "Өтінім #{id}: {amount} Ұшқын реквизиттерге. Төлем: {net} (комиссия {fee}).",
-        "WITHDRAW_STARS_OK": "✅ Stars төленді ({gifts} сыйлық, {stars}⭐).",
-        "WITHDRAW_STARS_PENDING": "⏳ Автотөлем өтпеді: {error}",
+        "WITHDRAW_STARS_OK": "✅ {stars}⭐ Fragment арқылы жіберілді (tx: {tx_id}).",
+        "WITHDRAW_STARS_PENDING": "⏳ Fragment арқылы автотөлем өтпеді: {error}",
+        "WITHDRAW_FRAGMENT_MIN": "Комиссиядан кейін төлемге кемінде {min} Stars қалуы керек.",
+        "WITHDRAW_USERNAME_REQUIRED": (
+            "Stars шығару үшін Telegram-дағы @username қажет.\n\n"
+            "Қалай орнату керек:\n"
+            "1. Telegram → Баптаулар → Пайдаланушы аты\n"
+            "2. @username ойлап табып сақта\n"
+            "3. Осы жерге оралып «Дайын, тексеру» басы"
+        ),
+        "WITHDRAW_USERNAME_STILL_MISSING": "Username әлі табылмады. @username орнатып, «Дайын, тексеру» басы.",
+        "WITHDRAW_USERNAME_FOUND": "Керемет! @{username} табылды. Шығару сомасын жазы.",
+        "ERR_NO_USERNAME": "Stars шығару үшін Telegram-дағы @username қажет.",
+        "ERR_FRAGMENT_NOT_CONFIGURED": "Fragment арқылы автотөлем уақытша қолжетімсіз.",
         "WITHDRAW_ASK_REQUISITES": "Реквизиттерді жаз. Сома: {amount} Ұшқын",
         "EVENT_ASK_CATEGORY": "Тусовка тақырыбын таңда:",
         "EVENT_CREATED": "«{title}» тусовкасы жасалды!",
