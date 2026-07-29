@@ -72,6 +72,7 @@ async def payout_stars_via_fragment(
 
     try:
         from pyfragment import FragmentClient
+        from pyfragment.exceptions import VerificationError
 
         async with FragmentClient(
             seed=settings.fragment_ton_seed.strip(),
@@ -93,6 +94,18 @@ async def payout_stars_via_fragment(
                 transaction_id=str(tx_id) if tx_id else None,
                 recipient_username=str(uname) if uname else recipient,
             )
+    except VerificationError as e:
+        # pyfragment всегда пишет "KYC", но Fragment часто возвращает need_verify
+        # для постоянной привязки кошелька (Link Wallet), а не для Sumsub KYC.
+        logger.exception("Fragment verification/link required for %s amount=%s", recipient, stars_amount)
+        return FragmentPayoutResult(
+            ok=False,
+            error=(
+                "Fragment требует привязать TON-кошелёк к аккаунту (Link Wallet) "
+                "или завершить верификацию: https://fragment.com/my/profile "
+                f"({e})"
+            ),
+        )
     except Exception as e:
         logger.exception("Fragment payout failed for %s amount=%s", recipient, stars_amount)
         return FragmentPayoutResult(ok=False, error=str(e))
