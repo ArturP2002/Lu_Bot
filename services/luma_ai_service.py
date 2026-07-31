@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from models import Event, EventStatus, User
+from services.name_search import expand_name_variants, extract_names_from_query
 from services.user_service import is_premium
 
 logger = logging.getLogger(__name__)
@@ -51,8 +52,10 @@ class PeopleFilters:
     age_min: int | None = None
     age_max: int | None = None
     keywords: list[str] = field(default_factory=list)
+    names: list[str] = field(default_factory=list)
     verified_only: bool = False
     prefer_viewer_city: bool = True
+    require_match: bool = False
 
 
 @dataclass
@@ -202,11 +205,20 @@ def parse_people_filters_heuristic(query: str, viewer: User) -> PeopleFilters:
     any_city = any(w in q for w in ANY_CITY_WORDS)
     age_min, age_max = _extract_age(q)
     gender = _extract_gender(q)
+    names = extract_names_from_query(query)
     keywords = _extract_keywords(query)
-    # убрать из keywords токены города
+    # убрать из keywords токены города и имени
+    name_stems = {stem for n in names for stem in expand_name_variants(n)}
     if city:
         city_parts = {p.lower() for p in re.findall(r"[а-яёa-z\-]+", city, re.I)}
         keywords = [k for k in keywords if k not in city_parts and not any(k in p or p in k for p in city_parts)]
+    if names:
+        keywords = [
+            k
+            for k in keywords
+            if k not in name_stems
+            and not any(k.startswith(s[:4]) or s.startswith(k[:4]) for s in name_stems if len(k) >= 3)
+        ]
 
     prefer_viewer = not any_city and not city
     return PeopleFilters(
@@ -215,8 +227,10 @@ def parse_people_filters_heuristic(query: str, viewer: User) -> PeopleFilters:
         age_min=age_min,
         age_max=age_max,
         keywords=keywords,
+        names=names,
         verified_only="вериф" in q or "проверен" in q,
         prefer_viewer_city=prefer_viewer,
+        require_match=bool(names),
     )
 
 
@@ -254,7 +268,8 @@ async def _ai_parse_filters(query: str, viewer: User, kind: str) -> dict | None:
     schema_people = (
         '{"city": string|null, "gender": "male"|"female"|null, '
         '"age_min": int|null, "age_max": int|null, '
-        '"keywords": string[], "verified_only": bool, "any_city": bool}'
+        '"names": string[], "keywords": string[], '
+        '"verified_only": bool, "any_city": bool}'
     )
     schema_events = (
         '{"city": string|null, "keywords": string[], "today_only": bool, '
@@ -263,6 +278,12 @@ async def _ai_parse_filters(query: str, viewer: User, kind: str) -> dict | None:
     schema = schema_people if kind == "people" else schema_events
     try:
         client = AsyncOpenAI(api_key=settings.openai_api_key)
+        people_hint = (
+            "names — личные имена людей из запроса (Ксюша, Диана, Саша); "
+            "keywords — только интересы/тема (йога, спорт), без имён и стоп-слов. "
+            if kind == "people"
+            else ""
+        )
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -272,6 +293,7 @@ async def _ai_parse_filters(query: str, viewer: User, kind: str) -> dict | None:
                         f"Извлеки параметры поиска {('людей' if kind == 'people' else 'тусовок')} "
                         f"из запроса пользователя в JSON по схеме: {schema}. "
                         f"Город пользователя по умолчанию: {viewer.city or 'неизвестен'}. "
+                        f"{people_hint}"
                         "keywords — только смысловые слова интересов/темы (без стоп-слов вроде "
                         "«найди», «тусовка», «люди»). Если город не указан явно — city=null. "
                         "any_city=true если просят искать везде."
@@ -297,16 +319,24 @@ async def resolve_people_filters(session: AsyncSession, viewer: User, query: str
     any_city = bool(data.get("any_city"))
     city = None if any_city else (data.get("city") or base.city)
     gender = data.get("gender") if data.get("gender") in ("male", "female") else base.gender
+    names_raw = data.get("names") if isinstance(data.get("names"), list) else base.names
+    names = [str(n).lower().strip() for n in (names_raw or []) if str(n).strip() and not _is_stopword(str(n))]
+    if not names:
+        names = list(base.names)
     keywords = data.get("keywords") if isinstance(data.get("keywords"), list) else base.keywords
     keywords = [str(k).lower().strip() for k in keywords if str(k).strip() and not _is_stopword(str(k))]
+    name_stems = {stem for n in names for stem in expand_name_variants(n)}
+    keywords = [k for k in keywords if k not in name_stems]
     return PeopleFilters(
         city=str(city).strip() if city else None,
         gender=gender,
         age_min=int(data["age_min"]) if data.get("age_min") else base.age_min,
         age_max=int(data["age_max"]) if data.get("age_max") else base.age_max,
         keywords=keywords[:6],
+        names=names[:4],
         verified_only=bool(data.get("verified_only")) or base.verified_only,
         prefer_viewer_city=not any_city and not city,
+        require_match=bool(names) or base.require_match,
     )
 
 
@@ -326,6 +356,17 @@ async def resolve_event_filters(session: AsyncSession, viewer: User, query: str)
         category=(str(data["category"]).strip() if data.get("category") else base.category),
         prefer_viewer_city=not any_city and not city,
     )
+
+
+def _name_match_clause(variants: list[str]):
+    """WHERE: display_name / bio / username содержит хотя бы один вариант имени."""
+    parts = []
+    for v in variants:
+        like = f"%{v}%"
+        parts.append(User.display_name.ilike(like))
+        parts.append(User.bio.ilike(like))
+        parts.append(User.username.ilike(like))
+    return or_(*parts) if parts else None
 
 
 async def search_people(
@@ -357,14 +398,32 @@ async def search_people(
     if f.age_max is not None:
         base.append(User.age <= f.age_max)
 
-    city = f.city or (viewer.city if f.prefer_viewer_city else None)
+    name_variants: list[str] = []
+    for n in f.names:
+        for v in expand_name_variants(n):
+            if v not in name_variants:
+                name_variants.append(v)
 
-    async def _run(apply_city: bool, apply_keywords: bool) -> list[User]:
+    city = f.city or (viewer.city if f.prefer_viewer_city else None)
+    require_name = bool(f.names) or f.require_match
+
+    async def _run(*, apply_city: bool, apply_keywords: bool, apply_names: bool) -> list[User]:
         clauses = list(base)
         score = User.rating_avg * 10
+        if apply_names and name_variants:
+            name_clause = _name_match_clause(name_variants)
+            if name_clause is not None:
+                clauses.append(name_clause)
+            for v in name_variants:
+                like = f"%{v}%"
+                score = score + case(
+                    (User.display_name.ilike(like), 40),
+                    (User.username.ilike(like), 20),
+                    (User.bio.ilike(like), 15),
+                    else_=0,
+                )
         if apply_city and city:
             exact, soft = _city_match_clause(User.city, city)
-            # если город явно в запросе — фильтруем; если только prefer — только boost
             if f.city:
                 clauses.append(or_(exact, soft))
             score = score + case((exact, 50), (soft, 25), else_=0)
@@ -383,13 +442,21 @@ async def search_people(
         )
         return list(result.scalars().all())
 
-    rows = await _run(apply_city=True, apply_keywords=True)
+    # Поиск по имени: жёсткий фильтр, без fallback на «топ города»
+    if require_name and name_variants:
+        rows = await _run(apply_city=True, apply_keywords=True, apply_names=True)
+        if not rows and (f.city or f.prefer_viewer_city):
+            rows = await _run(apply_city=False, apply_keywords=True, apply_names=True)
+        return rows
+
+    rows = await _run(apply_city=True, apply_keywords=True, apply_names=False)
     if not rows and f.keywords:
-        rows = await _run(apply_city=True, apply_keywords=False)
-    if not rows and (f.city or f.prefer_viewer_city):
-        rows = await _run(apply_city=False, apply_keywords=bool(f.keywords))
-    if not rows:
-        rows = await _run(apply_city=False, apply_keywords=False)
+        # Интересы: ослабить город, но не отдавать случайных людей без keywords
+        rows = await _run(apply_city=False, apply_keywords=True, apply_names=False)
+    if not rows and not f.keywords:
+        rows = await _run(apply_city=True, apply_keywords=False, apply_names=False)
+        if not rows:
+            rows = await _run(apply_city=False, apply_keywords=False, apply_names=False)
     return rows
 
 
@@ -508,23 +575,44 @@ def _format_events(events: list[Event], lang_or_user="ru") -> str:
     return "\n".join(lines)
 
 
-def _people_db_context(users: list[User]) -> str:
+def _people_db_context(
+    users: list[User],
+    *,
+    names: list[str] | None = None,
+    keywords: list[str] | None = None,
+) -> str:
     if not users:
-        return "Никого не найдено в БД."
-    lines = []
+        if names:
+            shown = ", ".join(names)
+            return (
+                f"По имени не найдено: {shown}. "
+                "В базе нет анкет с таким именем (учти уменьшительные и полное имя). "
+                "Не предлагай других людей вместо запрошенного имени."
+            )
+        if keywords:
+            return (
+                f"По интересам ({', '.join(keywords)}) никого не найдено. "
+                "Не выдумывай анкеты."
+            )
+        return "Никого не найдено в БД. Не выдумывай людей."
+    match = "name" if names else ("keyword" if keywords else "ranked")
+    lines = [f"Результаты поиска (match={match}, count={len(users)}):"]
     for u in users:
         lines.append(
-            f"id={u.id}; имя={u.display_name}; возраст={u.age}; город={u.city}; "
-            f"пол={u.gender}; верифицирован={u.verified}; рейтинг={u.rating_avg}; "
+            f"id={u.id}; имя={u.display_name}; username={u.username or '—'}; "
+            f"возраст={u.age}; город={u.city}; пол={u.gender}; "
+            f"верифицирован={u.verified}; рейтинг={u.rating_avg}; "
             f"bio={(u.bio or '')[:160]}"
         )
     return "\n".join(lines)
 
 
-def _events_db_context(events: list[Event]) -> str:
+def _events_db_context(events: list[Event], *, keywords: list[str] | None = None) -> str:
     if not events:
-        return "Тусовок не найдено в БД."
-    lines = []
+        hint = f" по запросу «{', '.join(keywords)}»" if keywords else ""
+        return f"Тусовок не найдено в БД{hint}. Не выдумывай мероприятия."
+    match = "keyword" if keywords else "ranked"
+    lines = [f"Результаты поиска тусовок (match={match}, count={len(events)}):"]
     for e in events:
         lines.append(
             f"id={e.id}; «{e.title}»; город={e.city}; дата={e.event_date} {e.event_time}; "
@@ -540,7 +628,11 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "search_people_db",
-            "description": "Поиск анкет людей в базе данных LUMA",
+            "description": (
+                "Поиск анкет людей в БД LUMA. "
+                "Для поиска по имени передай names (Ксюша, Диана). "
+                "keywords — только интересы/тема, не имена."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -548,7 +640,16 @@ _TOOLS = [
                     "gender": {"type": "string", "enum": ["male", "female"]},
                     "age_min": {"type": "integer"},
                     "age_max": {"type": "integer"},
-                    "keywords": {"type": "array", "items": {"type": "string"}},
+                    "names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Личные имена из запроса",
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Интересы/тема без имён",
+                    },
                     "verified_only": {"type": "boolean"},
                     "any_city": {"type": "boolean"},
                 },
@@ -577,31 +678,55 @@ _TOOLS = [
 
 async def _run_tool(session: AsyncSession, viewer: User, name: str, args: dict) -> str:
     if name == "search_people_db":
+        from services.name_search import DIMINUTIVE_TO_CANON, stem_name
+
         any_city = bool(args.get("any_city"))
         city = None if any_city else args.get("city")
+        names = [str(k) for k in (args.get("names") or []) if str(k).strip()][:4]
+        keywords = [str(k) for k in (args.get("keywords") or []) if str(k).strip()][:6]
+
+        def _looks_like_name(token: str) -> bool:
+            key = token.lower().replace("ё", "е")
+            st = stem_name(key)
+            return (
+                key in DIMINUTIVE_TO_CANON
+                or st in DIMINUTIVE_TO_CANON
+                or (st + "а") in DIMINUTIVE_TO_CANON
+                or (st + "я") in DIMINUTIVE_TO_CANON
+            )
+
+        if not names and keywords:
+            moved = [k for k in keywords if _looks_like_name(k)]
+            if moved:
+                names = moved
+                keywords = [k for k in keywords if k not in moved]
+
         f = PeopleFilters(
             city=str(city).strip() if city else None,
             gender=args.get("gender") if args.get("gender") in ("male", "female") else None,
             age_min=args.get("age_min"),
             age_max=args.get("age_max"),
-            keywords=[str(k) for k in (args.get("keywords") or []) if str(k).strip()][:6],
+            keywords=keywords,
+            names=names,
             verified_only=bool(args.get("verified_only")),
             prefer_viewer_city=not any_city and not city,
+            require_match=bool(names),
         )
         users = await search_people(session, viewer, "", limit=12, filters=f)
-        return _people_db_context(users)
+        return _people_db_context(users, names=names or None, keywords=keywords or None)
     if name == "search_events_db":
         any_city = bool(args.get("any_city"))
         city = None if any_city else args.get("city")
+        keywords = [str(k) for k in (args.get("keywords") or []) if str(k).strip()][:6]
         f = EventFilters(
             city=str(city).strip() if city else None,
-            keywords=[str(k) for k in (args.get("keywords") or []) if str(k).strip()][:6],
+            keywords=keywords,
             today_only=bool(args.get("today_only")),
             category=str(args["category"]).strip() if args.get("category") else None,
             prefer_viewer_city=not any_city and not city,
         )
         events = await search_events(session, viewer, "", limit=12, filters=f)
-        return _events_db_context(events)
+        return _events_db_context(events, keywords=keywords or None)
     return "Неизвестный инструмент"
 
 
@@ -619,18 +744,24 @@ async def ask_luma(session: AsyncSession, redis: Redis, user, message: str) -> s
         people = await search_people(session, user, message, limit=8)
         events = await search_events(session, user, message, limit=8)
         return (
-            f"Я LUMA (демо-режим без OPENAI_API_KEY).\n\n"
+            f"Я LU (демо-режим без OPENAI_API_KEY).\n\n"
             f"{_format_people(people, user)}\n\n{_format_events(events, user)}"
         )
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
     system = (
-        "Ты LUMA — AI-помощник бота знакомств и мероприятий. "
+        "Ты LU — спокойный премиальный консьерж бота знакомств и мероприятий. "
+        "Говори уверенно, коротко и по делу: 2–5 предложений, без канцелярита и без "
+        "шаблонов вроде «Конечно! Я помогу…». Без нумерованных списков без нужды. "
         "Для любых вопросов про людей или тусовки СНАЧАЛА вызови инструменты "
         "search_people_db / search_events_db — они ходят в реальную БД. "
         f"Город пользователя: {user.city or 'неизвестен'}. "
-        "Отвечай кратко на языке пользователя, опираясь только на данные из инструментов. "
-        "Если БД пуста — честно скажи, что не нашла, и предложи уточнить запрос."
+        "Опирайся только на данные инструментов. Не выдумывай имена, возраст, города. "
+        "Если искали человека по имени и БД пуста — честно скажи, что не нашла, "
+        "и предложи одно уточнение (город или полное имя). "
+        "Не подменяй запрошенное имя другими людьми из выдачи. "
+        "При находках кратко: имя, возраст, город и одна деталь из bio. "
+        "Отвечай на языке пользователя."
     )
     messages: list[dict] = [
         {"role": "system", "content": system},
@@ -643,7 +774,8 @@ async def ask_luma(session: AsyncSession, redis: Redis, user, message: str) -> s
             messages=messages,
             tools=_TOOLS,
             tool_choice="auto",
-            max_tokens=700,
+            max_tokens=800,
+            temperature=0.5,
         )
         choice = response.choices[0]
         msg = choice.message
