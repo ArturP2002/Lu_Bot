@@ -837,16 +837,77 @@ TEXT_MODERATION_PROMPT = (
 )
 
 PHOTO_MODERATION_PROMPT = (
-    "Ты модератор фото анкеты dating/тусовки бота. Проверь изображение.\n"
-    "ЗАПРЕЩЕНО (ok=false):\n"
-    "1) Полная нагота: видны гениталии; полностью обнажённая женская грудь без белья/купальника/топа. "
-    "Мужской голый торс (без майки) — РАЗРЕШЁН. "
-    "Бельё, трусы, купальник, топ, частично открытая одежда — РАЗРЕШЕНЫ (ok=true).\n"
-    "2) Любые QR-коды на фото.\n"
-    "3) Явная порнография, наркотики, реклама/мошенничество.\n"
-    "Обычные портретные/повседневные фото — разрешены.\n"
-    'Ответь строго JSON: {"ok": true/false, "reason": "краткая причина на русском или пусто"}'
+    "Ты модератор фото анкеты dating-бота. Смотри картинку внимательно.\n\n"
+    "РАЗРЕШЕНО (это НЕ нагота):\n"
+    "• Бельё, трусы, лифчик, бра, топ, спортивный топ, купальник, бикини — даже если открыт живот/бёдра\n"
+    "• Частично открытая одежда, кроп-топ, прозрачная ткань поверх белья\n"
+    "• Мужской голый торс / грудь без майки — всегда ok\n"
+    "• Обычные портреты и повседневные фото\n\n"
+    "ЗАПРЕЩЕНО:\n"
+    "• Видны гениталии\n"
+    "• Женская грудь БЕЗ ткани: видны соски или ареолы (не прикрыты бельём/топом/руками/волосами)\n"
+    "• Явная порнография, наркотики, QR-коды, реклама/мошенничество\n\n"
+    "ПРАВИЛО: если на груди женщины лежит любая ткань (лифчик, бра, купальник, топ) — "
+    "female_bare_nipples=false и ok=true, даже если много кожи.\n"
+    "Не путай бельё/купальник с «полной наготой».\n\n"
+    "Ответь строго JSON:\n"
+    '{"has_genitalia": bool, "female_bare_nipples": bool, '
+    '"covered_by_underwear_or_swimwear": bool, "has_qr": bool, '
+    '"other_forbidden": bool, "ok": bool, "reason": "кратко на русском или пусто"}'
 )
+
+
+def _decide_photo_moderation(data: dict) -> tuple[bool, str]:
+    """Итоговый вердикт по структурированному ответу vision-модели."""
+    has_genitalia = bool(data.get("has_genitalia"))
+    female_bare = bool(data.get("female_bare_nipples"))
+    covered = bool(data.get("covered_by_underwear_or_swimwear"))
+    has_qr = bool(data.get("has_qr"))
+    other = bool(data.get("other_forbidden"))
+    reason = str(data.get("reason") or "").strip()
+
+    # Бельё/купальник перекрывает ложные срабатывания «оголённая грудь»
+    if covered and not has_genitalia and not has_qr and not other:
+        return True, ""
+
+    if has_genitalia:
+        return False, reason or "полная нагота"
+    if female_bare and not covered:
+        return False, reason or "оголённая женская грудь"
+    if has_qr:
+        return False, reason or "QR-код"
+    if other:
+        return False, reason or "нарушение"
+
+    # Fallback на поле ok, но смягчаем типичные ложные причины
+    if data.get("ok", True):
+        return True, ""
+    soft = reason.lower()
+    false_positive = any(
+        s in soft
+        for s in (
+            "частично",
+            "бель",
+            "купальн",
+            "бикини",
+            "трус",
+            "лифчик",
+            "бюстгальтер",
+            "открыт",
+            "swimsuit",
+            "lingerie",
+            "underwear",
+            "бра",
+            "топ",
+        )
+    )
+    hard = any(
+        s in soft
+        for s in ("генитал", "сосок", "ареол", "вагин", "пенис", "порно", "qr")
+    )
+    if false_positive and not hard:
+        return True, ""
+    return False, reason or "нарушение"
 
 
 async def moderate_text(text: str) -> tuple[bool, str]:
@@ -918,13 +979,12 @@ async def moderate_photo(file_bytes: bytes | None = None, caption: str | None = 
                     ],
                 }
             ],
-            max_tokens=80,
+            max_tokens=120,
+            temperature=0,
             response_format={"type": "json_object"},
         )
         data = json.loads(response.choices[0].message.content or "{}")
-        if data.get("ok", True):
-            return True, ""
-        return False, str(data.get("reason") or "нарушение")
+        return _decide_photo_moderation(data)
     except Exception as e:
         logger.warning("moderate_photo failed: %s", e)
         return True, ""

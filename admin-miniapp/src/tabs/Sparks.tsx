@@ -29,6 +29,7 @@ const TYPE_FILTERS: { value: string; label: string }[] = [
   { value: 'referral_reward', label: 'Реферал' },
   { value: 'blogger_commission', label: 'Блогер' },
   { value: 'blogger_profiles_100', label: 'Блогер: 100 анкет' },
+  { value: 'premium_auto_renew', label: 'Автопродление Premium' },
 ]
 
 function amountClass(amount: number): string {

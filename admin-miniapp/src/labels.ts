@@ -68,6 +68,7 @@ export const TX_TYPE: Record<string, string> = {
   purchase: 'Покупка искр',
   buy_sparks: 'Покупка искр',
   premium: 'Premium',
+  premium_auto_renew: 'Автопродление Premium',
   withdraw: 'Вывод средств',
   withdraw_fee: 'Комиссия за вывод',
   withdraw_refund: 'Возврат вывода',

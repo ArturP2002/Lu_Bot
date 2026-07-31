@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 
+from arq import cron
 from arq.connections import RedisSettings
 from sqlalchemy import select
 
@@ -79,6 +80,44 @@ async def send_broadcast(ctx, broadcast_id: int) -> None:
     await bot.session.close()
 
 
+async def renew_premium_subscriptions(ctx) -> None:
+    """Раз в час: автопродление Premium списанием Искр (1 месяц)."""
+    from aiogram import Bot
+    from aiogram.client.default import DefaultBotProperties
+    from aiogram.enums import ParseMode
+    from zoneinfo import ZoneInfo
+
+    from services.premium_renewal_service import renew_expired_premium
+
+    factory = get_session_factory()
+    async with factory() as session:
+        renewed = await renew_expired_premium(session)
+        await session.commit()
+
+    if not renewed or not settings.bot_token:
+        return
+
+    bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    try:
+        for user, price, until in renewed:
+            until_local = until.astimezone(ZoneInfo("Europe/Moscow"))
+            until_str = until_local.strftime("%d.%m.%Y %H:%M")
+            try:
+                await bot.send_message(
+                    user.telegram_id,
+                    f"Premium продлён автоматически на 1 месяц (−{price} искр✨).\n"
+                    f"Действует до: <b>{until_str}</b> (МСК)",
+                )
+            except Exception as e:
+                logger.warning("Не удалось уведомить о продлении %s: %s", user.telegram_id, e)
+            await asyncio.sleep(0.05)
+    finally:
+        await bot.session.close()
+
+
 class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
-    functions = [send_broadcast]
+    functions = [send_broadcast, renew_premium_subscriptions]
+    cron_jobs = [
+        cron(renew_premium_subscriptions, minute={15}, unique=True),
+    ]
