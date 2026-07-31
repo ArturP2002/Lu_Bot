@@ -424,6 +424,12 @@ async def ref_claim(callback: CallbackQuery, user: User, session: AsyncSession, 
 @router.callback_query(F.data == "ref:blogger")
 async def ref_blogger(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
   try:
+    from services.blogger_service import is_blogger_revoked
+
+    if await is_blogger_revoked(session, user):
+      await safe_edit_text(callback.message, t(user, "BLOGGER_REVOKED"), redis=redis)
+      await callback.answer()
+      return
     profile = await apply_blogger(session, user)
     if profile is None:
       await safe_edit_text(callback.message, t(user, "BLOGGER_LOCKED"), redis=redis)

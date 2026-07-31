@@ -41,11 +41,29 @@ async def approve_blogger(session: AsyncSession, user_id: int) -> BloggerProfile
     return profile
 
 
-async def reject_blogger(session: AsyncSession, user_id: int) -> None:
+async def revoke_blogger(session: AsyncSession, user_id: int) -> BloggerProfile | None:
+    """Снять статус блогера (админка). Авто-выдача больше не вернёт статус."""
     result = await session.execute(select(BloggerProfile).where(BloggerProfile.user_id == user_id))
     profile = result.scalar_one_or_none()
-    if profile:
-        profile.status = "rejected"
+    if not profile:
+        return None
+    profile.status = "rejected"
+    user = await session.get(User, user_id)
+    if user:
+        user.referral_track = ReferralTrack.STANDARD.value
+    await session.flush()
+    return profile
+
+
+async def reject_blogger(session: AsyncSession, user_id: int) -> None:
+    """Обратная совместимость: снять статус блогера."""
+    await revoke_blogger(session, user_id)
+
+
+async def is_blogger_revoked(session: AsyncSession, user: User) -> bool:
+    result = await session.execute(select(BloggerProfile).where(BloggerProfile.user_id == user.id))
+    profile = result.scalar_one_or_none()
+    return bool(profile and profile.status == "rejected")
 
 
 async def is_blogger_eligible(session: AsyncSession, user: User) -> bool:
@@ -57,6 +75,9 @@ async def is_blogger_eligible(session: AsyncSession, user: User) -> bool:
     profile = result.scalar_one_or_none()
     if profile and profile.status == "approved":
         return True
+    # Админ снял статус — без ручного возврата не выдаём снова
+    if profile and profile.status == "rejected":
+        return False
 
     count = await count_completed_referrals(session, user.id)
     if count >= BLOGGER_UNLOCK_THRESHOLD:

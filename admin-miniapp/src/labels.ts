@@ -39,9 +39,9 @@ export const REFERRAL_REWARD: Record<string, string> = {
 }
 
 export const BLOGGER_STATUS: Record<string, string> = {
-  pending: 'На проверке',
-  approved: 'Одобрен',
-  rejected: 'Отклонён',
+  pending: 'Неактивен',
+  approved: 'Активен',
+  rejected: 'Снят',
 }
 
 export const BROADCAST_STATUS: Record<string, string> = {

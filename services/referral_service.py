@@ -116,8 +116,8 @@ async def claim_referral_reward(session: AsyncSession, user: User, threshold: in
         await add_transaction(session, user.id, sparks, "referral_reward", threshold)
 
     if threshold >= BLOGGER_UNLOCK_THRESHOLD:
-        from services.blogger_service import approve_blogger
+        from services.blogger_service import maybe_auto_unlock_blogger
 
-        await approve_blogger(session, user.id)
+        await maybe_auto_unlock_blogger(session, user)
 
     return reward_type

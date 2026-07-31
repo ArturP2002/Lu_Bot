@@ -8,14 +8,11 @@ interface BloggerRow {
   user_id: number
   user: { id: number; telegram_id: number; display_name: string | null; username: string | null; city: string | null } | null
   status: string
-  views: number
   total_commission: number
-  reward_500k_claimed: boolean
-  reward_1m_claimed: boolean
   created_at: string | null
 }
 
-type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected'
+type StatusFilter = 'all' | 'approved' | 'rejected'
 
 interface Props {
   toast: (message: string, type?: 'success' | 'error') => void
@@ -23,19 +20,17 @@ interface Props {
 
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'Все' },
-  { value: 'pending', label: 'На проверке' },
-  { value: 'approved', label: 'Одобрены' },
-  { value: 'rejected', label: 'Отклонены' },
+  { value: 'approved', label: 'Активные' },
+  { value: 'rejected', label: 'Снятые' },
 ]
 
 function statusBadgeClass(status: string): string {
   if (status === 'approved') return 'success'
   if (status === 'rejected') return 'danger'
-  if (status === 'pending') return 'warning'
   return 'muted'
 }
 
-function formatViews(n: number): string {
+function formatNum(n: number): string {
   return n.toLocaleString('ru-RU')
 }
 
@@ -46,7 +41,6 @@ export function Bloggers({ toast }: Props) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [busyId, setBusyId] = useState<number | null>(null)
-  const [viewsEdit, setViewsEdit] = useState<Record<number, string>>({})
 
   async function load() {
     setLoading(true)
@@ -54,9 +48,6 @@ export function Bloggers({ toast }: Props) {
     try {
       const rows = await api<BloggerRow[]>('/admin/bloggers')
       setItems(rows)
-      const next: Record<number, string> = {}
-      for (const b of rows) next[b.user_id] = String(b.views)
-      setViewsEdit(next)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -71,7 +62,9 @@ export function Bloggers({ toast }: Props) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return items.filter((b) => {
-      if (status !== 'all' && b.status !== status) return false
+      // pending (legacy) показываем в «Снятые» вместе с rejected
+      if (status === 'approved' && b.status !== 'approved') return false
+      if (status === 'rejected' && b.status === 'approved') return false
       if (!q) return true
       const hay = [
         String(b.id),
@@ -87,36 +80,20 @@ export function Bloggers({ toast }: Props) {
     })
   }, [items, query, status])
 
-  async function decide(userId: number, decision: 'approve' | 'reject') {
+  async function setStatusAction(userId: number, decision: 'restore' | 'revoke') {
+    const confirmMsg =
+      decision === 'revoke'
+        ? 'Снять статус блогера? Автовыдача по рефералке больше не вернёт его.'
+        : 'Вернуть статус блогера?'
+    if (!confirm(confirmMsg)) return
+
     setBusyId(userId)
     try {
       await api(`/admin/bloggers/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify({ decision }),
       })
-      toast(decision === 'approve' ? 'Заявка одобрена' : 'Заявка отклонена')
-      await load()
-    } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), 'error')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function saveViews(userId: number) {
-    const raw = viewsEdit[userId]
-    const views = Number(raw)
-    if (!Number.isFinite(views) || views < 0) {
-      toast('Укажите корректное число просмотров', 'error')
-      return
-    }
-    setBusyId(userId)
-    try {
-      await api(`/admin/bloggers/${userId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ decision: 'approve', views }),
-      })
-      toast('Просмотры обновлены')
+      toast(decision === 'restore' ? 'Статус блогера возвращён' : 'Статус блогера снят')
       await load()
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'error')
@@ -128,14 +105,14 @@ export function Bloggers({ toast }: Props) {
   if (loading) return <LoadingState />
   if (error) return <ErrorState message={error} onRetry={load} />
 
-  const pendingCount = items.filter((b) => b.status === 'pending').length
+  const activeCount = items.filter((b) => b.status === 'approved').length
 
   return (
     <div>
       <h2 className="section-title">Блогеры</h2>
       <p className="section-desc">
-        Заявки, просмотры и комиссия 15% с Premium
-        {pendingCount ? ` · ${pendingCount} на проверке` : ''}
+        Партнёры с статусом Блогер · комиссия 15% с Premium
+        {activeCount ? ` · ${activeCount} активных` : ''}
       </p>
 
       <div className="search-bar">
@@ -148,7 +125,7 @@ export function Bloggers({ toast }: Props) {
       </div>
 
       <div className="field">
-        <label>Статус заявки</label>
+        <label>Статус</label>
         <div className="chips">
           {STATUS_FILTERS.map((f) => (
             <button
@@ -170,7 +147,7 @@ export function Bloggers({ toast }: Props) {
 
       {!filtered.length ? (
         <EmptyState
-          title={items.length ? 'Ничего не найдено' : 'Нет заявок блогеров'}
+          title={items.length ? 'Ничего не найдено' : 'Нет блогеров'}
           desc={items.length ? 'Измените поиск или фильтр' : undefined}
         />
       ) : (
@@ -194,62 +171,37 @@ export function Bloggers({ toast }: Props) {
             </div>
 
             <div className="detail-row">
-              <span className="detail-label">Просмотры</span>
-              <span className="detail-value mono">{formatViews(b.views)}</span>
-            </div>
-            <div className="detail-row">
               <span className="detail-label">Комиссия</span>
               <span className="detail-value mono">
-                <span className="hl">{formatViews(b.total_commission)}</span> ⚡
+                <span className="hl">{formatNum(b.total_commission)}</span> ⚡
               </span>
             </div>
             <div className="detail-row">
-              <span className="detail-label">Заявка от</span>
+              <span className="detail-label">С</span>
               <span className="detail-value mono">{shortDate(b.created_at) || '—'}</span>
             </div>
 
-            {b.status === 'approved' && (
-              <div className="form-grid" style={{ marginTop: 4 }}>
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label>Обновить просмотры</label>
-                  <input
-                    className="input"
-                    inputMode="numeric"
-                    value={viewsEdit[b.user_id] ?? String(b.views)}
-                    onChange={(e) => setViewsEdit((prev) => ({ ...prev, [b.user_id]: e.target.value }))}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  disabled={busyId === b.user_id}
-                  onClick={() => saveViews(b.user_id)}
-                >
-                  Сохранить просмотры
-                </button>
-              </div>
-            )}
-
-            {b.status === 'pending' && (
-              <div className="row-actions">
-                <button
-                  type="button"
-                  className="btn btn-success btn-sm"
-                  disabled={busyId === b.user_id}
-                  onClick={() => decide(b.user_id, 'approve')}
-                >
-                  Одобрить
-                </button>
+            <div className="row-actions">
+              {b.status === 'approved' ? (
                 <button
                   type="button"
                   className="btn btn-danger btn-sm"
                   disabled={busyId === b.user_id}
-                  onClick={() => decide(b.user_id, 'reject')}
+                  onClick={() => setStatusAction(b.user_id, 'revoke')}
                 >
-                  Отклонить
+                  Снять статус
                 </button>
-              </div>
-            )}
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-success btn-sm"
+                  disabled={busyId === b.user_id}
+                  onClick={() => setStatusAction(b.user_id, 'restore')}
+                >
+                  Вернуть статус
+                </button>
+              )}
+            </div>
           </div>
         ))
       )}

@@ -183,6 +183,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "Статус Блогер открывается автоматически после 25 приглашённых друзей "
             "(финальный бонус обычной реферальной программы)."
         ),
+        "BLOGGER_REVOKED": "Статус Блогер снят администратором. Обратись в поддержку, если это ошибка.",
         "LANG_CHANGED": "Язык изменён.",
         "PREMIUM_ACTIVE": "У тебя уже активен Premium ⭐\n\nПодписка действует до: <b>{until}</b>",
         "PREMIUM_TITLE": "Что такое Premium?",
@@ -311,6 +312,7 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "BLOGGER_PENDING": "Заяўка адпраўлена. Чакай пацверджання.",
         "BLOGGER_LOCKED": "Статус Блогер адкрываецца аўтаматычна пасля 25 запрошаных сяброў.",
+        "BLOGGER_REVOKED": "Статус Блогер зняты адміністратарам.",
         "LANG_CHANGED": "Мова зменена.",
         "PREMIUM_ACTIVE": "У цябе ўжо Premium ⭐\n\nДа: <b>{until}</b>",
         "PREMIUM_TITLE": "Што такое Premium?",
@@ -436,6 +438,7 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "BLOGGER_PENDING": "Заявку надіслано. Чекай підтвердження.",
         "BLOGGER_LOCKED": "Статус Блогер відкривається автоматично після 25 запрошених друзів.",
+        "BLOGGER_REVOKED": "Статус Блогер знято адміністратором.",
         "LANG_CHANGED": "Мову змінено.",
         "PREMIUM_ACTIVE": "У тебе вже є Premium ⭐\n\nДіє до: <b>{until}</b>",
         "PREMIUM_TITLE": "Що таке Premium?",
@@ -561,6 +564,7 @@ TEXTS: dict[str, dict[str, str]] = {
         ),
         "BLOGGER_PENDING": "Өтінім жіберілді. Админ растауын күт.",
         "BLOGGER_LOCKED": "Блогер мәртебесі 25 шақырылған достан кейін автоматты ашылады.",
+        "BLOGGER_REVOKED": "Блогер мәртебесін әкімші алып тастады.",
         "LANG_CHANGED": "Тіл өзгертілді.",
         "PREMIUM_ACTIVE": "Premium белсенді ⭐\n\nМерзімі: <b>{until}</b>",
         "PREMIUM_TITLE": "Premium дегеніміз не?",

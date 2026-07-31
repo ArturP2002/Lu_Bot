@@ -20,7 +20,7 @@ from models import Broadcast, Complaint, Event, Payment, SparksTransaction, User
 from models.entities import BloggerProfile, Referral, ReferralReward
 from services.sparks_service import add_transaction
 from services.user_service import get_user_by_telegram_id, is_premium
-from services.blogger_service import approve_blogger, reject_blogger
+from services.blogger_service import approve_blogger, revoke_blogger
 from services.app_settings_service import (
     SETTING_META,
     env_defaults,
@@ -986,10 +986,7 @@ async def admin_bloggers(session: AsyncSession = Depends(get_session), _=Depends
                 "user_id": bp.user_id,
                 "user": _user_brief(user),
                 "status": bp.status,
-                "views": bp.views,
                 "total_commission": bp.total_commission,
-                "reward_500k_claimed": bp.reward_500k_claimed,
-                "reward_1m_claimed": bp.reward_1m_claimed,
                 "created_at": str(bp.created_at) if bp.created_at else None,
             }
         )
@@ -997,8 +994,7 @@ async def admin_bloggers(session: AsyncSession = Depends(get_session), _=Depends
 
 
 class BloggerDecision(BaseModel):
-    decision: str  # approve / reject
-    views: int | None = None
+    decision: str  # restore / revoke
 
 
 @app.patch("/admin/bloggers/{user_id}")
@@ -1008,22 +1004,12 @@ async def admin_blogger_decide(
     session: AsyncSession = Depends(get_session),
     _=Depends(admin_auth),
 ):
-    if body.decision == "approve":
+    if body.decision in ("restore", "approve"):
         await approve_blogger(session, user_id)
-    elif body.decision == "reject":
-        await reject_blogger(session, user_id)
+    elif body.decision in ("revoke", "reject"):
+        await revoke_blogger(session, user_id)
     else:
         raise HTTPException(400, "Неверное решение")
-    if body.views is not None:
-        result = await session.execute(select(BloggerProfile).where(BloggerProfile.user_id == user_id))
-        bp = result.scalar_one_or_none()
-        if bp:
-            bp.views = max(0, body.views)
-            from services.blogger_service import _maybe_claim_view_rewards
-
-            user = await session.get(User, user_id)
-            if user:
-                await _maybe_claim_view_rewards(session, user, bp)
     return {"ok": True}
 
 
