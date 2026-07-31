@@ -274,6 +274,16 @@ async def prof_bio_save(message: Message, state: FSMContext, user: User, redis: 
 @router.callback_query(F.data == "prof:premium")
 async def prof_premium(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
   lang = lang_of(user)
+  from services.app_settings_service import get_premium_prices, get_setting_float
+  from services.event_service import PREMIUM_PIN_DISCOUNT
+
+  withdraw_fee_pct = int(round(await get_setting_float(session, "withdraw_fee_rate_premium") * 100))
+  support_fee_pct = int(round(await get_setting_float(session, "support_fee_rate_premium") * 100))
+  pin_discount_pct = int(round(PREMIUM_PIN_DISCOUNT * 100))
+  text = (
+    f"{t(user, 'PREMIUM_TITLE')}\n\n"
+    f"{t(user, 'PREMIUM_TEXT', withdraw_fee_pct=withdraw_fee_pct, support_fee_pct=support_fee_pct, pin_discount_pct=pin_discount_pct)}"
+  )
   if is_premium(user) and user.premium_until:
     from zoneinfo import ZoneInfo
 
@@ -282,37 +292,37 @@ async def prof_premium(callback: CallbackQuery, user: User, session: AsyncSessio
       until = until.replace(tzinfo=timezone.utc)
     until_local = until.astimezone(ZoneInfo("Europe/Moscow"))
     until_str = until_local.strftime("%d.%m.%Y %H:%M")
-    await safe_edit_text(
-      callback.message,
-      t(user, "PREMIUM_ACTIVE", until=until_str),
-      redis=redis,
-      parse_mode="HTML",
-    )
-  else:
-    from services.app_settings_service import get_setting_float, get_setting_int
-    from services.event_service import PREMIUM_PIN_DISCOUNT
-
-    premium_price = await get_setting_int(session, "premium_price")
-    withdraw_fee_pct = int(round(await get_setting_float(session, "withdraw_fee_rate_premium") * 100))
-    support_fee_pct = int(round(await get_setting_float(session, "support_fee_rate_premium") * 100))
-    pin_discount_pct = int(round(PREMIUM_PIN_DISCOUNT * 100))
-    text = (
-      f"{t(user, 'PREMIUM_TITLE')}\n\n"
-      f"{t(user, 'PREMIUM_TEXT', withdraw_fee_pct=withdraw_fee_pct, support_fee_pct=support_fee_pct, pin_discount_pct=pin_discount_pct)}"
-    )
-    await safe_edit_text(callback.message, text, reply_markup=premium_kb(premium_price, lang), redis=redis)
+    text = f"{t(user, 'PREMIUM_ACTIVE', until=until_str)}\n\n{text}"
+  prices = await get_premium_prices(session)
+  await safe_edit_text(
+    callback.message,
+    text,
+    reply_markup=premium_kb(prices, lang),
+    redis=redis,
+    parse_mode="HTML",
+  )
   await callback.answer()
 
 
-@router.callback_query(F.data == "prof:premium:buy")
+@router.callback_query(F.data.startswith("prof:premium:buy"))
 async def prof_premium_buy(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
   from datetime import timedelta
 
-  from services.app_settings_service import get_setting_int
+  from services.app_settings_service import PREMIUM_PLANS, get_setting_int
   from services.blogger_service import pay_blogger_commission
   from services.sparks_service import add_transaction
 
-  premium_price = await get_setting_int(session, "premium_price")
+  parts = (callback.data or "").split(":")
+  # prof:premium:buy or prof:premium:buy:3
+  months = 1
+  if len(parts) >= 4 and parts[3].isdigit():
+    months = int(parts[3])
+  if months not in PREMIUM_PLANS:
+    await callback.answer(t(user, "ERR_INVALID_INPUT"), show_alert=True)
+    return
+
+  price_key, days = PREMIUM_PLANS[months]
+  premium_price = await get_setting_int(session, price_key)
   if user.sparks_balance < premium_price:
     await callback.answer(t(user, "ERR_NOT_ENOUGH_SPARKS"), show_alert=True)
     return
@@ -322,8 +332,8 @@ async def prof_premium_buy(callback: CallbackQuery, user: User, session: AsyncSe
   base = user.premium_until if user.premium_until and user.premium_until > now else now
   if base.tzinfo is None:
     base = base.replace(tzinfo=timezone.utc)
-  user.premium_until = base + timedelta(days=30)
-  await safe_edit_text(callback.message, tx(user, "PREMIUM_ACTIVATED"), redis=redis)
+  user.premium_until = base + timedelta(days=days)
+  await safe_edit_text(callback.message, tx(user, "PREMIUM_ACTIVATED", months=months), redis=redis)
   await callback.answer()
 
 
@@ -415,18 +425,19 @@ async def ref_claim(callback: CallbackQuery, user: User, session: AsyncSession, 
 async def ref_blogger(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
   try:
     profile = await apply_blogger(session, user)
+    if profile is None:
+      await safe_edit_text(callback.message, t(user, "BLOGGER_LOCKED"), redis=redis)
+      await callback.answer()
+      return
     bp = await get_or_create_blogger(session, user)
-    if profile.status == "pending":
-      text = t(user, "BLOGGER_PENDING")
-    else:
-      profiles = await count_completed_referrals(session, user.id)
-      text = t(
-        user,
-        "BLOGGER_INTRO",
-        link=blogger_link(user),
-        views=bp.views,
-        profiles=profiles,
-      )
+    profiles = await count_completed_referrals(session, user.id)
+    text = t(
+      user,
+      "BLOGGER_INTRO",
+      link=blogger_link(user),
+      views=bp.views,
+      profiles=profiles,
+    )
     await safe_edit_text(callback.message, text, redis=redis)
   except Exception:
     import logging

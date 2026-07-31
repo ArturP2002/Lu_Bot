@@ -8,16 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import Referral, ReferralReward, User
 from services.sparks_service import add_transaction
 
-# ТЗ: диапазоны → награда при достижении нижней границы
-# 1–3 → Premium 1м; 4–5 → Premium 3м; 6–10 → 200 искр;
-# 11–100 → 300 искр + Premium 6м; 100+ → 1000 искр + Premium навсегда
+# 1–4 → Premium 1м; 5–9 → Premium 3м; 10–24 → Premium 12м;
+# 25+ → Premium навсегда + статус Блогер
 REFERRAL_THRESHOLDS = {
     1: ("premium_1m", 30, 0),
-    4: ("premium_3m", 90, 0),
-    6: ("sparks_200", 0, 200),
-    11: ("sparks_300_premium_6m", 180, 300),
-    100: ("sparks_1000_premium_forever", -1, 1000),
+    5: ("premium_3m", 90, 0),
+    10: ("premium_12m", 365, 0),
+    25: ("premium_forever_blogger", -1, 0),
 }
+
+BLOGGER_UNLOCK_THRESHOLD = 25
 
 
 async def count_completed_referrals(session: AsyncSession, referrer_id: int) -> int:
@@ -55,8 +55,9 @@ async def process_referral_on_profile_complete(session: AsyncSession, user: User
     referrer = await session.get(User, user.referred_by_id)
     if referrer:
         referrer.referral_count = await count_completed_referrals(session, referrer.id)
-        from services.blogger_service import maybe_reward_blogger_profiles
+        from services.blogger_service import maybe_auto_unlock_blogger, maybe_reward_blogger_profiles
 
+        await maybe_auto_unlock_blogger(session, referrer)
         await maybe_reward_blogger_profiles(session, referrer)
 
 
@@ -113,5 +114,10 @@ async def claim_referral_reward(session: AsyncSession, user: User, threshold: in
 
     if sparks > 0:
         await add_transaction(session, user.id, sparks, "referral_reward", threshold)
+
+    if threshold >= BLOGGER_UNLOCK_THRESHOLD:
+        from services.blogger_service import approve_blogger
+
+        await approve_blogger(session, user.id)
 
     return reward_type

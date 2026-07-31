@@ -72,7 +72,7 @@ def language_kb() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Русский"), KeyboardButton(text="Беларуская")],
-            [KeyboardButton(text="Українська"), KeyboardButton(text="Қазақша")],
+            [KeyboardButton(text="Қазақша")],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -217,10 +217,19 @@ def disable_goodbye_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     )
 
 
-def premium_kb(price: int = 149, lang: str = "ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=tx(lang, "BUY_PREMIUM_BTN", price=price), callback_data="prof:premium:buy")]]
-    )
+def premium_kb(prices: dict[int, int] | None = None, lang: str = "ru") -> InlineKeyboardMarkup:
+    prices = prices or {1: 249, 3: 499, 6: 749, 12: 1249}
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=tx(lang, "BUY_PREMIUM_BTN", months=months, price=prices[months]),
+                callback_data=f"prof:premium:buy:{months}",
+            )
+        ]
+        for months in (1, 3, 6, 12)
+        if months in prices
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def payment_method_kb(amount: int, lang: str = "ru") -> InlineKeyboardMarkup:

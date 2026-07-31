@@ -207,19 +207,6 @@ export function Bloggers({ toast }: Props) {
               <span className="detail-label">Заявка от</span>
               <span className="detail-value mono">{shortDate(b.created_at) || '—'}</span>
             </div>
-            <div className="detail-row">
-              <span className="detail-label">Награды</span>
-              <span className="detail-value">
-                <div className="badges" style={{ justifyContent: 'flex-end' }}>
-                  <span className={`badge ${b.reward_500k_claimed ? 'success' : 'muted'}`}>
-                    500 тыс.{b.reward_500k_claimed ? ' ✓' : ''}
-                  </span>
-                  <span className={`badge ${b.reward_1m_claimed ? 'success' : 'muted'}`}>
-                    1 млн{b.reward_1m_claimed ? ' ✓' : ''}
-                  </span>
-                </div>
-              </span>
-            </div>
 
             {b.status === 'approved' && (
               <div className="form-grid" style={{ marginTop: 4 }}>

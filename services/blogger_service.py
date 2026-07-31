@@ -12,8 +12,6 @@ from services.sparks_service import add_transaction
 
 settings = get_settings()
 COMMISSION_RATE = 0.15  # 15% от покупок Premium рефералами
-VIEWS_REWARD_500K = 1000
-VIEWS_REWARD_1M = 2000
 PROFILES_PER_REWARD = 100
 PROFILES_REWARD_SPARKS = 300
 
@@ -26,14 +24,6 @@ async def get_or_create_blogger(session: AsyncSession, user: User) -> BloggerPro
     profile = BloggerProfile(user_id=user.id, status="pending")
     session.add(profile)
     await session.flush()
-    return profile
-
-
-async def apply_blogger(session: AsyncSession, user: User) -> BloggerProfile:
-    profile = await get_or_create_blogger(session, user)
-    if profile.status == "rejected":
-        profile.status = "pending"
-    user.referral_track = ReferralTrack.BLOGGER.value
     return profile
 
 
@@ -58,6 +48,43 @@ async def reject_blogger(session: AsyncSession, user_id: int) -> None:
         profile.status = "rejected"
 
 
+async def is_blogger_eligible(session: AsyncSession, user: User) -> bool:
+    """Блогерка открывается при 25+ друзьях (финальный бонус обычной рефералки)."""
+    from models import ReferralReward
+    from services.referral_service import BLOGGER_UNLOCK_THRESHOLD, count_completed_referrals
+
+    result = await session.execute(select(BloggerProfile).where(BloggerProfile.user_id == user.id))
+    profile = result.scalar_one_or_none()
+    if profile and profile.status == "approved":
+        return True
+
+    count = await count_completed_referrals(session, user.id)
+    if count >= BLOGGER_UNLOCK_THRESHOLD:
+        return True
+
+    claimed = await session.execute(
+        select(ReferralReward.threshold).where(
+            ReferralReward.user_id == user.id,
+            ReferralReward.threshold >= BLOGGER_UNLOCK_THRESHOLD,
+        )
+    )
+    return claimed.scalars().first() is not None
+
+
+async def maybe_auto_unlock_blogger(session: AsyncSession, user: User) -> BloggerProfile | None:
+    """Автоматически выдать статус блогера без одобрения админа, если доступен."""
+    if not await is_blogger_eligible(session, user):
+        return None
+    return await approve_blogger(session, user.id)
+
+
+async def apply_blogger(session: AsyncSession, user: User) -> BloggerProfile | None:
+    """Открыть блогер-программу. Без заявки админу — только после разблокировки рефералкой."""
+    if not await is_blogger_eligible(session, user):
+        return None
+    return await approve_blogger(session, user.id)
+
+
 async def record_blogger_view(session: AsyncSession, referrer: User) -> None:
     """Учесть просмотр по реферальной ссылке блогера."""
     if referrer.referral_track != ReferralTrack.BLOGGER.value:
@@ -67,16 +94,11 @@ async def record_blogger_view(session: AsyncSession, referrer: User) -> None:
     if not profile or profile.status != "approved":
         return
     profile.views += 1
-    await _maybe_claim_view_rewards(session, referrer, profile)
 
 
 async def _maybe_claim_view_rewards(session: AsyncSession, user: User, profile: BloggerProfile) -> None:
-    if profile.views >= 500_000 and not profile.reward_500k_claimed:
-        profile.reward_500k_claimed = True
-        await add_transaction(session, user.id, VIEWS_REWARD_500K, "blogger_views_500k")
-    if profile.views >= 1_000_000 and not profile.reward_1m_claimed:
-        profile.reward_1m_claimed = True
-        await add_transaction(session, user.id, VIEWS_REWARD_1M, "blogger_views_1m")
+    """Награды за просмотры отключены — оставлено для совместимости админки."""
+    return
 
 
 async def maybe_reward_blogger_profiles(session: AsyncSession, referrer: User) -> int:

@@ -29,7 +29,11 @@ class Settings(BaseSettings):
     withdraw_fee_rate: float = 0.15
     withdraw_fee_rate_premium: float = 0.07
     withdraw_min: int = 1000
-    premium_price: int = 149
+    premium_price: int = 249  # совместимость: цена Premium на 1 месяц
+    premium_price_1m: int = 249
+    premium_price_3m: int = 499
+    premium_price_6m: int = 749
+    premium_price_12m: int = 1249
     rating_reset_price: int = 50
     event_boost_price: int = 50
     event_pin_price: int = 500

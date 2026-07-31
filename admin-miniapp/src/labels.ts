@@ -30,6 +30,9 @@ export const REFERRAL_TRACK: Record<string, string> = {
 export const REFERRAL_REWARD: Record<string, string> = {
   premium_1m: 'Premium на 1 мес.',
   premium_3m: 'Premium на 3 мес.',
+  premium_12m: 'Premium на 12 мес.',
+  premium_forever_blogger: 'Premium навсегда + Блогер',
+  // legacy
   sparks_200: '200 искр',
   sparks_300_premium_6m: '300 искр + Premium на 6 мес.',
   sparks_1000_premium_forever: '1000 искр + Premium навсегда',

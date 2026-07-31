@@ -16,7 +16,11 @@ def env_defaults() -> dict[str, str]:
         "ai_daily_limit": str(s.ai_daily_limit),
         "spark_price_rub": str(s.spark_price_rub),
         "spark_price_stars": str(s.spark_price_stars),
-        "premium_price": str(s.premium_price),
+        "premium_price": str(s.premium_price_1m or s.premium_price),
+        "premium_price_1m": str(s.premium_price_1m or s.premium_price),
+        "premium_price_3m": str(s.premium_price_3m),
+        "premium_price_6m": str(s.premium_price_6m),
+        "premium_price_12m": str(s.premium_price_12m),
         "rating_reset_price": str(s.rating_reset_price),
         "event_boost_price": str(s.event_boost_price),
         "event_pin_price": str(s.event_pin_price),
@@ -57,9 +61,30 @@ SETTING_META: list[dict] = [
         "group": "pricing",
     },
     {
-        "key": "premium_price",
-        "label": "Цена Premium (Искры)",
-        "hint": "Стоимость Premium в Искрах",
+        "key": "premium_price_1m",
+        "label": "Premium 1 месяц (Искры)",
+        "hint": "Стоимость подписки на 1 месяц",
+        "type": "int",
+        "group": "pricing",
+    },
+    {
+        "key": "premium_price_3m",
+        "label": "Premium 3 месяца (Искры)",
+        "hint": "Стоимость подписки на 3 месяца",
+        "type": "int",
+        "group": "pricing",
+    },
+    {
+        "key": "premium_price_6m",
+        "label": "Premium 6 месяцев (Искры)",
+        "hint": "Стоимость подписки на 6 месяцев",
+        "type": "int",
+        "group": "pricing",
+    },
+    {
+        "key": "premium_price_12m",
+        "label": "Premium 12 месяцев (Искры)",
+        "hint": "Стоимость подписки на 12 месяцев",
         "type": "int",
         "group": "pricing",
     },
@@ -176,7 +201,30 @@ async def get_setting_value(session: AsyncSession, key: str) -> str:
     row = result.scalar_one_or_none()
     if row is not None and row.value is not None and str(row.value).strip() != "":
         return str(row.value)
+    # premium_price_1m ← legacy premium_price
+    if key == "premium_price_1m":
+        legacy = await session.execute(select(AppSetting).where(AppSetting.key == "premium_price"))
+        legacy_row = legacy.scalar_one_or_none()
+        if legacy_row is not None and legacy_row.value is not None and str(legacy_row.value).strip() != "":
+            return str(legacy_row.value)
     return env_defaults().get(key, "")
+
+
+# Месяцы подписки Premium → ключ настройки и число дней
+PREMIUM_PLANS: dict[int, tuple[str, int]] = {
+    1: ("premium_price_1m", 30),
+    3: ("premium_price_3m", 90),
+    6: ("premium_price_6m", 180),
+    12: ("premium_price_12m", 365),
+}
+
+
+async def get_premium_prices(session: AsyncSession) -> dict[int, int]:
+    """Цены Premium по длительности в месяцах."""
+    prices: dict[int, int] = {}
+    for months, (key, _days) in PREMIUM_PLANS.items():
+        prices[months] = await get_setting_int(session, key)
+    return prices
 
 
 async def get_setting_int(session: AsyncSession, key: str) -> int:
@@ -200,6 +248,13 @@ async def get_all_settings(session: AsyncSession) -> dict[str, str]:
         # Пустая строка в БД = fallback на .env
         if key not in data or data[key] is None or str(data[key]).strip() == "":
             data[key] = default
+    # Если premium_price_1m ещё не задан в БД — взять legacy premium_price
+    one_m_row = await session.execute(select(AppSetting).where(AppSetting.key == "premium_price_1m"))
+    if one_m_row.scalar_one_or_none() is None:
+        legacy = await session.execute(select(AppSetting).where(AppSetting.key == "premium_price"))
+        legacy_row = legacy.scalar_one_or_none()
+        if legacy_row is not None and legacy_row.value is not None and str(legacy_row.value).strip() != "":
+            data["premium_price_1m"] = str(legacy_row.value)
     return data
 
 
