@@ -723,7 +723,7 @@ async def prof_buy(callback: CallbackQuery, state: FSMContext, session: AsyncSes
   stars = await get_setting_float(session, "spark_price_stars")
   text = (
     f"{t(user, "BUY_SPARKS_INFO")}\n\n"
-    f"{t(user, "BUY_SPARKS_RATES", rub=rub, stars=stars)}\n\n"
+    f"{t(user, "BUY_SPARKS_RATES", rub=f"{rub:g}", stars=f"{stars:g}")}\n\n"
     f"{tx(user, 'BUY_SPARKS_ASK')}"
   )
   prompt = await safe_edit_text(callback.message, text, redis=redis)
@@ -747,7 +747,7 @@ async def pay_buy_yookassa(callback: CallbackQuery, user: User, session: AsyncSe
     return
 
   key = "PAY_YOOKASSA_STUB" if link.is_stub else "PAY_YOOKASSA_CREATED"
-  text = t(user, key, amount=amount, rub=link.payment.amount_rub)
+  text = t(user, key, amount=amount, rub=f"{link.payment.amount_rub:.0f}")
   await safe_edit_text(
     callback.message,
     text,

@@ -66,14 +66,14 @@ BUY_SPARKS_INFO = (
     "Искры — внутренняя валюта для услуг и поддержки других пользователей.\n"
     "Пополнение: ЮKassa или Telegram Stars."
 )
-BUY_SPARKS_RATES = "Курс: 1 Искра = {rub:g} ₽ или {stars:g} Star(s)."
+BUY_SPARKS_RATES = "Курс: 1 Искра = {rub} ₽ или {stars} Star(s)."
 PAY_CHOOSE_METHOD = "Выбери способ оплаты для <b>{amount}</b> Искр:"
 PAY_YOOKASSA_CREATED = (
-    "Счёт на <b>{amount}</b> Искр ({rub:.0f} ₽) создан.\n"
+    "Счёт на <b>{amount}</b> Искр ({rub} ₽) создан.\n"
     "Нажми «Оплатить», чтобы перейти к оплате."
 )
 PAY_YOOKASSA_STUB = (
-    "Счёт на <b>{amount}</b> Искр ({rub:.0f} ₽) создан.\n\n"
+    "Счёт на <b>{amount}</b> Искр ({rub} ₽) создан.\n\n"
     "⚠️ ЮKassa в режиме заглушки: в .env нет "
     "<code>YOOKASSA_SHOP_ID</code> / <code>YOOKASSA_SHOP_SECRET_ID</code>.\n"
     "Когда ключи появятся — ссылка станет настоящей.\n\n"
