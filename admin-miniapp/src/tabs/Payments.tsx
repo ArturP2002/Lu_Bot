@@ -119,6 +119,7 @@ export function Payments({ toast: _toast }: Props) {
             <div className="row-meta mono">
               <span className="hl">{p.amount_sparks}</span> искр
               {p.provider === 'yookassa' ? ` · ${p.amount_rub} ₽` : ''}
+              {p.provider === 'stars' ? ` · ${Math.round(p.amount_rub || p.amount_sparks)} ⭐` : ''}
               {p.purpose ? ` · ${label(PAYMENT_PURPOSE, p.purpose)}` : ''}
             </div>
             {p.external_id && <div className="row-meta">ID: {p.external_id}</div>}

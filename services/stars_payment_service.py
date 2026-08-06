@@ -69,17 +69,24 @@ async def record_stars_payment(
     *,
     external_id: str,
     amount_sparks: int,
+    amount_stars: int,
     paid_at: datetime | None = None,
     credit_balance: bool = True,
 ) -> Payment:
-    """Создать/обновить succeeded Stars-платёж. Идемпотентно по external_id."""
+    """Создать/обновить succeeded Stars-платёж. Идемпотентно по external_id.
+
+    amount_stars (XTR) пишем в amount_rub — отдельной колонки нет; в админке для stars это Stars.
+    """
     paid_at = paid_at or datetime.now(timezone.utc)
+    stars_paid = float(max(1, int(amount_stars)))
     existing = await get_payment_by_external_id(session, external_id)
     if existing:
         if existing.status != PaymentStatus.SUCCEEDED.value:
             existing.status = PaymentStatus.SUCCEEDED.value
             existing.paid_at = paid_at
             existing.amount_sparks = amount_sparks
+        if not existing.amount_rub:
+            existing.amount_rub = stars_paid
         return existing
 
     near = await _find_near_duplicate(
@@ -88,6 +95,8 @@ async def record_stars_payment(
     if near:
         if not near.external_id:
             near.external_id = external_id
+        if not near.amount_rub:
+            near.amount_rub = stars_paid
         return near
 
     payment = Payment(
@@ -95,7 +104,7 @@ async def record_stars_payment(
         provider=PaymentProvider.STARS.value,
         external_id=external_id,
         amount_sparks=amount_sparks,
-        amount_rub=0.0,
+        amount_rub=stars_paid,
         status=PaymentStatus.SUCCEEDED.value,
         purpose="buy_sparks",
         paid_at=paid_at,
@@ -119,6 +128,7 @@ async def sync_star_transactions_to_payments(
 ) -> int:
     """Подтянуть входящие Stars-покупки из Telegram в таблицу payments (без повторного зачисления)."""
     created = 0
+    updated = 0
     try:
         result = await bot.get_star_transactions(offset=0, limit=limit)
     except Exception as e:
@@ -139,7 +149,15 @@ async def sync_star_transactions_to_payments(
             continue
 
         external_id = str(tx.id)
-        if await get_payment_by_external_id(session, external_id):
+        stars_paid = float(max(1, int(tx.amount)))
+        amount_sparks = parse_buy_sparks_amount(payload, tx.amount)
+        paid_at = datetime.fromtimestamp(tx.date, tz=timezone.utc) if tx.date else datetime.now(timezone.utc)
+
+        existing = await get_payment_by_external_id(session, external_id)
+        if existing:
+            if not existing.amount_rub:
+                existing.amount_rub = stars_paid
+                updated += 1
             continue
 
         user_row = await session.execute(select(User).where(User.telegram_id == tg_user.id))
@@ -147,12 +165,15 @@ async def sync_star_transactions_to_payments(
         if not user:
             continue
 
-        amount_sparks = parse_buy_sparks_amount(payload, tx.amount)
-        paid_at = datetime.fromtimestamp(tx.date, tz=timezone.utc) if tx.date else datetime.now(timezone.utc)
-
-        if await _find_near_duplicate(
+        near = await _find_near_duplicate(
             session, user_id=user.id, amount_sparks=amount_sparks, paid_at=paid_at
-        ):
+        )
+        if near:
+            if not near.amount_rub:
+                near.amount_rub = stars_paid
+                updated += 1
+            if not near.external_id:
+                near.external_id = external_id
             continue
 
         payment = Payment(
@@ -160,7 +181,7 @@ async def sync_star_transactions_to_payments(
             provider=PaymentProvider.STARS.value,
             external_id=external_id,
             amount_sparks=amount_sparks,
-            amount_rub=0.0,
+            amount_rub=stars_paid,
             status=PaymentStatus.SUCCEEDED.value,
             purpose="buy_sparks",
             paid_at=paid_at,
@@ -168,7 +189,7 @@ async def sync_star_transactions_to_payments(
         session.add(payment)
         created += 1
 
-    if created:
+    if created or updated:
         await session.flush()
-        logger.info("Synced %s Stars payments from Telegram", created)
-    return created
+        logger.info("Synced Stars payments: created=%s updated=%s", created, updated)
+    return created + updated

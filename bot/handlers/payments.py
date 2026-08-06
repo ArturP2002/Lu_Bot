@@ -42,6 +42,7 @@ async def successful_payment(message: Message, user: User, session: AsyncSession
     user,
     external_id=external_id,
     amount_sparks=amount_sparks,
+    amount_stars=sp.total_amount,
     paid_at=datetime.now(timezone.utc),
     credit_balance=True,
   )
