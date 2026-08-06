@@ -184,7 +184,6 @@ def language_inline_kb() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Беларуская", callback_data="prof:lang:be"),
             ],
             [
-                InlineKeyboardButton(text="Українська", callback_data="prof:lang:uk"),
                 InlineKeyboardButton(text="Қазақша", callback_data="prof:lang:kk"),
             ],
         ]
