@@ -116,7 +116,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "WITHDRAW_INFO": (
             "Вывод Искр через Fragment (Telegram Stars).\n"
             "Минимум: {min} Искр.\n"
-            "Комиссия: {fee_pct}% (для Premium — {premium_fee_pct}%).\n\n"
+            "Комиссия: {fee_pct}% (для Premium — {premium_fee_pct}%).\n"
+            "1 искра = 1 Telegram Stars\n\n"
             "Нужен публичный @username в Telegram. Stars отправляются автоматически после заявки."
         ),
         "RATE_EMPTY": "Пока новых анкет нет — загляни чуть позже ✨",
@@ -260,7 +261,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "WITHDRAW_INFO": (
             "Вывад Іскраў праз Fragment (Telegram Stars).\n"
             "Мінімум: {min} Іскраў.\n"
-            "Камісія: {fee_pct}% (Premium — {premium_fee_pct}%).\n\n"
+            "Камісія: {fee_pct}% (Premium — {premium_fee_pct}%).\n"
+            "1 іскра = 1 Telegram Stars\n\n"
             "Патрэбны публічны @username у Telegram."
         ),
         "RATE_EMPTY": "Пакуль новых анкет няма ✨",
@@ -386,7 +388,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "WITHDRAW_INFO": (
             "Вивід Іскор через Fragment (Telegram Stars).\n"
             "Мінімум: {min} Іскор.\n"
-            "Комісія: {fee_pct}% (Premium — {premium_fee_pct}%).\n\n"
+            "Комісія: {fee_pct}% (Premium — {premium_fee_pct}%).\n"
+            "1 іскра = 1 Telegram Stars\n\n"
             "Потрібен публічний @username в Telegram."
         ),
         "RATE_EMPTY": "Поки нових анкет немає ✨",
@@ -512,7 +515,8 @@ TEXTS: dict[str, dict[str, str]] = {
         "WITHDRAW_INFO": (
             "Ұшқынды Fragment арқылы шығару (Telegram Stars).\n"
             "Минимум: {min} Ұшқын.\n"
-            "Комиссия: {fee_pct}% (Premium — {premium_fee_pct}%).\n\n"
+            "Комиссия: {fee_pct}% (Premium — {premium_fee_pct}%).\n"
+            "1 ұшқын = 1 Telegram Stars\n\n"
             "Telegram-дағы @username қажет."
         ),
         "RATE_EMPTY": "Әзірге жаңа анкета жоқ ✨",

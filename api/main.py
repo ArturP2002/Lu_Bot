@@ -605,6 +605,22 @@ async def admin_payments(
     session: AsyncSession = Depends(get_session),
     _=Depends(admin_auth),
 ):
+    # Подтянуть историю Stars из Telegram (идемпотентно), чтобы в админке были все оплаты
+    if provider in (None, "", "stars") and settings.bot_token:
+        try:
+            from aiogram import Bot
+
+            from services.stars_payment_service import sync_star_transactions_to_payments
+
+            bot = Bot(token=settings.bot_token)
+            try:
+                await sync_star_transactions_to_payments(session, bot, limit=100)
+                await session.commit()
+            finally:
+                await bot.session.close()
+        except Exception:
+            logger.exception("Stars payments sync failed")
+
     stmt = select(Payment).order_by(Payment.id.desc()).limit(150)
     clauses = []
     if provider:

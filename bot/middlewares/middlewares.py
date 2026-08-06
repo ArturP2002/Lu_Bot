@@ -3,7 +3,7 @@
 from typing import Any, Awaitable, Callable, Dict
 
 from aiogram import BaseMiddleware
-from aiogram.types import TelegramObject
+from aiogram.types import CallbackQuery, Message, PreCheckoutQuery, TelegramObject, Update
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,8 +70,15 @@ class RedisMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+def _unwrap_event(event: TelegramObject) -> TelegramObject:
+    """Throttle висит на dp.update — event это Update, нужен внутренний объект."""
+    if isinstance(event, Update):
+        return event.event
+    return event
+
+
 class ThrottleMiddleware(BaseMiddleware):
-    """Простой rate limit."""
+    """Простой rate limit (не трогает платежи и меню)."""
 
     def __init__(self, redis: Redis, rate: float = 0.5):
         self.redis = redis
@@ -83,23 +90,22 @@ class ThrottleMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
-        from aiogram.types import CallbackQuery, Message
-
         from bot.texts.ui_labels import all_main_menu_texts
 
-        from_user = data.get("tg_user")
-        if from_user:
-            skip = False
-            if isinstance(event, CallbackQuery):
-                skip = True
-            elif isinstance(event, Message):
-                text = (event.text or "").strip()
-                if text.startswith("/"):
-                    skip = True
-                elif text in all_main_menu_texts():
-                    skip = True
+        obj = _unwrap_event(event)
 
-            if not skip:
+        # Платежный поток нельзя дропать: pre_checkout → successful_payment идут подряд
+        if isinstance(obj, PreCheckoutQuery):
+            return await handler(event, data)
+        if isinstance(obj, Message) and obj.successful_payment:
+            return await handler(event, data)
+        if isinstance(obj, CallbackQuery):
+            return await handler(event, data)
+
+        from_user = data.get("tg_user")
+        if from_user and isinstance(obj, Message):
+            text = (obj.text or "").strip()
+            if not (text.startswith("/") or text in all_main_menu_texts()):
                 key = f"throttle:{from_user.id}"
                 if await self.redis.exists(key):
                     return None

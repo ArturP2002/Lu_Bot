@@ -10,7 +10,6 @@ from bot.texts.ui_labels import tx
 from bot.utils.messaging import safe_edit_text, send_ui
 from models import Payment, User
 from models.entities import PaymentStatus
-from services.sparks_service import add_transaction
 from services.yookassa_service import complete_payment, fetch_yookassa_payment_status
 
 router = Router()
@@ -27,32 +26,25 @@ async def successful_payment(message: Message, user: User, session: AsyncSession
   """Успешная оплата через Telegram Stars."""
   from datetime import datetime, timezone
 
-  from models.entities import PaymentProvider, PaymentStatus
+  from services.stars_payment_service import parse_buy_sparks_amount, record_stars_payment
 
-  payload = message.successful_payment.invoice_payload or ""
-  amount_sparks = message.successful_payment.total_amount
-  if payload.startswith("buy_sparks:"):
-    try:
-      amount_sparks = int(payload.split(":", 1)[1])
-    except ValueError:
-      amount_sparks = message.successful_payment.total_amount
+  sp = message.successful_payment
+  if not sp:
+    return
 
-  payment = Payment(
-    user_id=user.id,
-    provider=PaymentProvider.STARS.value,
-    external_id=message.successful_payment.telegram_payment_charge_id,
+  amount_sparks = parse_buy_sparks_amount(sp.invoice_payload, sp.total_amount)
+  external_id = sp.telegram_payment_charge_id or sp.provider_payment_charge_id
+  if not external_id:
+    external_id = f"stars:{message.from_user.id}:{sp.total_amount}:{int(datetime.now(timezone.utc).timestamp())}"
+
+  await record_stars_payment(
+    session,
+    user,
+    external_id=external_id,
     amount_sparks=amount_sparks,
-    amount_rub=0.0,
-    status=PaymentStatus.SUCCEEDED.value,
-    purpose="buy_sparks",
     paid_at=datetime.now(timezone.utc),
+    credit_balance=True,
   )
-  session.add(payment)
-  await session.flush()
-  await add_transaction(session, user.id, amount_sparks, "purchase", payment.id)
-  from services.blogger_service import pay_blogger_commission
-
-  await pay_blogger_commission(session, user, amount_sparks, purpose="buy_sparks_stars")
   await send_ui(message, t(user, "PAY_SUCCESS", amount=amount_sparks), redis=redis)
 
 
