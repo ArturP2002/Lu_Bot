@@ -17,7 +17,13 @@ from bot.texts.i18n import lang_of, t
 from bot.texts.ui_labels import service_err, tx
 from bot.utils.messaging import cleanup_user_and_prompt, edit_or_send, safe_edit_text, send_ui
 from models import Event, EventStatus, User
-from services.luma_ai_service import ask_luma, resolve_people_filters, search_events, search_people
+from services.luma_ai_service import (
+  ask_luma,
+  resolve_event_filters,
+  resolve_people_filters,
+  search_events,
+  search_people,
+)
 from services.user_service import get_user_by_id, is_premium
 
 router = Router()
@@ -188,13 +194,14 @@ async def present_luma_events(
   *,
   redis: Redis,
   edit: bool = False,
+  empty_text: str | None = None,
 ) -> None:
   await clear_luma_people_browse(redis, viewer.id)
   if not events:
     await clear_luma_events_browse(redis, viewer.id)
     await edit_or_send(
       message,
-      tx(viewer, "LUMA_EVENTS_EMPTY"),
+      empty_text or tx(viewer, "LUMA_EVENTS_EMPTY"),
       reply_markup=luma_kb(is_premium(viewer), lang_of(viewer)),
       redis=redis,
       edit=edit,
@@ -356,8 +363,19 @@ async def luma_ask(
       )
       return
     if mode == "events":
-      events = await search_events(session, user, message.text, limit=10, use_ai_parse=True)
-      await present_luma_events(message, user, session, events, redis=redis, edit=False)
+      filters = await resolve_event_filters(session, user, message.text or "")
+      events = await search_events(
+        session, user, message.text or "", limit=10, filters=filters, use_ai_parse=False
+      )
+      empty = None
+      if not events and (filters.keywords or filters.category):
+        topic = ", ".join(
+          ([filters.category] if filters.category else []) + list(filters.keywords[:3])
+        )
+        empty = tx(user, "LUMA_EVENTS_TOPIC_EMPTY", topic=topic)
+      await present_luma_events(
+        message, user, session, events, redis=redis, edit=False, empty_text=empty
+      )
       return
 
     answer = await ask_luma(session, redis, user, message.text)

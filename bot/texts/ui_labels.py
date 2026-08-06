@@ -288,6 +288,9 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "LUMA_PEOPLE_DONE": "Это все анкеты по запросу. Можешь поискать ещё или задать вопрос LUMA.",
         "LUMA_PEOPLE_FOUND": "Нашла людей:",
         "LUMA_EVENTS_EMPTY": "Тусовок по запросу не нашла. Попробуй другие ключевые слова.",
+        "LUMA_EVENTS_TOPIC_EMPTY": (
+            "Не нашла тусовок по теме «{topic}». Уточни город или формулировку — и я поищу снова."
+        ),
         "LUMA_EVENTS_DONE": "Это все тусовки по запросу. Можешь поискать ещё или задать вопрос LUMA.",
         "LUMA_EVENTS_FOUND": "Нашла тусовки:",
         "LUMA_EVENT_LINE": "• «{title}» — {city}, {date} {time}\n  {address} · места {taken}/{need}",
@@ -436,6 +439,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "LUMA_PEOPLE_DONE": "Гэта ўсе анкеты па запыце. Можаш пашукаць яшчэ.",
         "LUMA_PEOPLE_FOUND": "Знайшла людзей:",
         "LUMA_EVENTS_EMPTY": "Тусовак не знайшла. Паспрабуй іншыя словы.",
+        "LUMA_EVENTS_TOPIC_EMPTY": "Не знайшла тусовак па тэме «{topic}». Удакладні горад ці фармулёўку.",
         "LUMA_EVENTS_DONE": "Гэта ўсе тусоўкі па запыце. Можаш пашукаць яшчэ.",
         "LUMA_EVENTS_FOUND": "Знайшла тусоўкі:",
         "LUMA_EVENT_LINE": "• «{title}» — {city}, {date} {time}\n  {address} · месцы {taken}/{need}",
@@ -584,6 +588,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "LUMA_PEOPLE_DONE": "Це всі анкети за запитом. Можеш пошукати ще.",
         "LUMA_PEOPLE_FOUND": "Знайшла людей:",
         "LUMA_EVENTS_EMPTY": "Тусовок не знайшла. Спробуй інші слова.",
+        "LUMA_EVENTS_TOPIC_EMPTY": "Не знайшла тусовок за темою «{topic}». Уточни місто або формулювання.",
         "LUMA_EVENTS_DONE": "Це всі тусовки за запитом. Можеш пошукати ще.",
         "LUMA_EVENTS_FOUND": "Знайшла тусовки:",
         "LUMA_EVENT_LINE": "• «{title}» — {city}, {date} {time}\n  {address} · місця {taken}/{need}",
@@ -732,6 +737,7 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "LUMA_PEOPLE_DONE": "Сұрау бойынша барлық анкета осы. Қайта іздеуге болады.",
         "LUMA_PEOPLE_FOUND": "Адамдар табылды:",
         "LUMA_EVENTS_EMPTY": "Тусовка табылмады. Басқа сөздерді байқап көр.",
+        "LUMA_EVENTS_TOPIC_EMPTY": "«{topic}» тақырыбы бойынша тусовка табылмады. Қаланы немесе сөзді нақтыла.",
         "LUMA_EVENTS_DONE": "Сұрау бойынша барлық тусовка осы. Қайта іздеуге болады.",
         "LUMA_EVENTS_FOUND": "Тусовкалар табылды:",
         "LUMA_EVENT_LINE": "• «{title}» — {city}, {date} {time}\n  {address} · орын {taken}/{need}",

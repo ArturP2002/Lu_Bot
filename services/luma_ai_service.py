@@ -65,6 +65,28 @@ class EventFilters:
     today_only: bool = False
     category: str | None = None
     prefer_viewer_city: bool = True
+    require_match: bool = False
+
+
+# Канонические категории БД + алиасы из живой речи
+_EVENT_CATEGORY_ALIASES: list[tuple[tuple[str, ...], str]] = [
+    (("на хату", "хату", "хата", "квартирник", "квартирн", "домашн"), "На хату"),
+    (("праздник", "день рождения", "birthday", "юбилей", "свят"), "Праздники"),
+    (("игр", "настол", "мафи", "board", "playstation", "приставк"), "Игры"),
+    (("посидел", "чай", "кофе", "общен"), "Посиделки"),
+]
+
+# Синонимы тем: запрос «кино» должен ловить title/description с «фильм»
+_EVENT_TOPIC_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "кино": ("кино", "фильм", "cinema", "movie", "кинотеатр", "сериал"),
+    "спорт": ("спорт", "футбол", "йога", "трениров", "fitness", "зал", "бег", "воркаут"),
+    "бар": ("бар", "паб", "коктейл", "пивн"),
+    "клуб": ("клуб", "дискотек", "рейв", "танцпол", "ночн"),
+    "концерт": ("концерт", "музык", "гитар", "джаз", "live"),
+    "пикник": ("пикник", "шашлык", "мангал", "парк"),
+    "йога": ("йога", "медитац", "стретч"),
+    "настолк": ("настол", "мафи", "uno"),
+}
 
 
 async def get_ai_daily_limit(session: AsyncSession) -> int:
@@ -234,6 +256,48 @@ def parse_people_filters_heuristic(query: str, viewer: User) -> PeopleFilters:
     )
 
 
+def _detect_event_category(query_lower: str) -> str | None:
+    """Каноническое имя категории из запроса, если тема узнаваема."""
+    for aliases, canonical in _EVENT_CATEGORY_ALIASES:
+        if any(a in query_lower for a in aliases):
+            return canonical
+    return None
+
+
+def expand_event_topic_tokens(*parts: str | None) -> list[str]:
+    """Варианты для жёсткого матча: категория + keywords + синонимы."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(token: str) -> None:
+        t = token.lower().strip()
+        if len(t) < 2 or t in seen:
+            return
+        seen.add(t)
+        out.append(t)
+
+    for part in parts:
+        if not part:
+            continue
+        raw = part.lower().strip()
+        _add(raw)
+        for syn_key, syns in _EVENT_TOPIC_SYNONYMS.items():
+            if raw == syn_key or raw.startswith(syn_key) or syn_key.startswith(raw):
+                for s in syns:
+                    _add(s)
+            elif any(raw.startswith(s) or s.startswith(raw) for s in syns if len(s) >= 3):
+                for s in syns:
+                    _add(s)
+                _add(syn_key)
+        for aliases, canonical in _EVENT_CATEGORY_ALIASES:
+            can_l = canonical.lower()
+            if raw == can_l or any(raw.startswith(a) or a.startswith(raw) for a in aliases if len(a) >= 3):
+                _add(can_l)
+                for a in aliases:
+                    _add(a)
+    return out[:16]
+
+
 def parse_event_filters_heuristic(query: str, viewer: User) -> EventFilters:
     q = query.lower().strip()
     city = _extract_city_from_query(query)
@@ -245,19 +309,36 @@ def parse_event_filters_heuristic(query: str, viewer: User) -> EventFilters:
         city_parts = {p.lower() for p in re.findall(r"[а-яёa-z\-]+", city, re.I)}
         keywords = [k for k in keywords if k not in city_parts]
 
-    category = None
-    for cat in ("на хату", "праздник", "игр", "посидел", "кино", "спорт", "бар", "клуб"):
-        if cat in q:
-            category = cat
-            break
+    category = _detect_event_category(q)
+    # Тема из свободных слов (кино/бар/…), если категории ещё нет
+    if not category:
+        for topic, syns in _EVENT_TOPIC_SYNONYMS.items():
+            if topic in q or any(len(s) >= 4 and s in q for s in syns):
+                if topic not in keywords:
+                    keywords.insert(0, topic)
+                break
+
+    if category:
+        cat_tokens = set(expand_event_topic_tokens(category))
+        keywords = [
+            k
+            for k in keywords
+            if k not in cat_tokens
+            and not any(
+                (len(k) >= 3 and len(t) >= 3 and (k.startswith(t[:4]) or t.startswith(k[:4])))
+                for t in cat_tokens
+            )
+        ]
 
     prefer_viewer = (near or not city) and not any_city
+    has_topic = bool(keywords) or bool(category)
     return EventFilters(
         city=None if any_city else (viewer.city if near and viewer.city and not city else city),
         keywords=keywords,
         today_only=today,
         category=category,
         prefer_viewer_city=prefer_viewer,
+        require_match=has_topic,
     )
 
 
@@ -273,17 +354,22 @@ async def _ai_parse_filters(query: str, viewer: User, kind: str) -> dict | None:
     )
     schema_events = (
         '{"city": string|null, "keywords": string[], "today_only": bool, '
-        '"category": string|null, "any_city": bool}'
+        '"category": "На хату"|"Праздники"|"Игры"|"Посиделки"|string|null, '
+        '"any_city": bool}'
     )
     schema = schema_people if kind == "people" else schema_events
     try:
         client = AsyncOpenAI(api_key=settings.openai_api_key)
-        people_hint = (
-            "names — личные имена людей из запроса (Ксюша, Диана, Саша); "
-            "keywords — только интересы/тема (йога, спорт), без имён и стоп-слов. "
-            if kind == "people"
-            else ""
-        )
+        if kind == "people":
+            extra_hint = (
+                "names — личные имена людей из запроса (Ксюша, Диана, Саша); "
+                "keywords — только интересы/тема (йога, спорт), без имён и стоп-слов. "
+            )
+        else:
+            extra_hint = (
+                "category — канон: «На хату», «Праздники», «Игры», «Посиделки» если тема ясна; "
+                "keywords — тема/место/атмосфера (кино, бар, шашлык, квартирник), без стоп-слов. "
+            )
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -293,7 +379,7 @@ async def _ai_parse_filters(query: str, viewer: User, kind: str) -> dict | None:
                         f"Извлеки параметры поиска {('людей' if kind == 'people' else 'тусовок')} "
                         f"из запроса пользователя в JSON по схеме: {schema}. "
                         f"Город пользователя по умолчанию: {viewer.city or 'неизвестен'}. "
-                        f"{people_hint}"
+                        f"{extra_hint}"
                         "keywords — только смысловые слова интересов/темы (без стоп-слов вроде "
                         "«найди», «тусовка», «люди»). Если город не указан явно — city=null. "
                         "any_city=true если просят искать везде."
@@ -349,12 +435,35 @@ async def resolve_event_filters(session: AsyncSession, viewer: User, query: str)
     city = None if any_city else (data.get("city") or base.city)
     keywords = data.get("keywords") if isinstance(data.get("keywords"), list) else base.keywords
     keywords = [str(k).lower().strip() for k in keywords if str(k).strip() and not _is_stopword(str(k))]
+    raw_cat = data.get("category")
+    category = str(raw_cat).strip() if raw_cat else None
+    if category:
+        detected = _detect_event_category(category.lower())
+        if detected:
+            category = detected
+    else:
+        category = base.category
+    if not keywords:
+        keywords = list(base.keywords)
+    if category:
+        cat_tokens = set(expand_event_topic_tokens(category))
+        keywords = [
+            k
+            for k in keywords
+            if k not in cat_tokens
+            and not any(
+                (len(k) >= 3 and len(t) >= 3 and (k.startswith(t[:4]) or t.startswith(k[:4])))
+                for t in cat_tokens
+            )
+        ]
+    has_topic = bool(keywords) or bool(category)
     return EventFilters(
         city=str(city).strip() if city else None,
         keywords=keywords[:6],
         today_only=bool(data.get("today_only")) or base.today_only,
-        category=(str(data["category"]).strip() if data.get("category") else base.category),
+        category=category,
         prefer_viewer_city=not any_city and not city,
+        require_match=has_topic or base.require_match,
     )
 
 
@@ -366,6 +475,18 @@ def _name_match_clause(variants: list[str]):
         parts.append(User.display_name.ilike(like))
         parts.append(User.bio.ilike(like))
         parts.append(User.username.ilike(like))
+    return or_(*parts) if parts else None
+
+
+def _event_topic_match_clause(tokens: list[str]):
+    """WHERE: title / description / category / address содержит хотя бы один токен темы."""
+    parts = []
+    for t in tokens:
+        like = f"%{t}%"
+        parts.append(Event.title.ilike(like))
+        parts.append(Event.description.ilike(like))
+        parts.append(Event.category.ilike(like))
+        parts.append(Event.address.ilike(like))
     return or_(*parts) if parts else None
 
 
@@ -469,7 +590,7 @@ async def search_events(
     filters: EventFilters | None = None,
     use_ai_parse: bool = False,
 ) -> list[Event]:
-    """Поиск тусовок по БД с мягким ранжированием."""
+    """Поиск тусовок по БД: жёсткий матч темы + релевантный score (не лента pin/boost)."""
     f = filters
     if f is None:
         f = await resolve_event_filters(session, viewer, query) if use_ai_parse else parse_event_filters_heuristic(query, viewer)
@@ -486,34 +607,31 @@ async def search_events(
         base.append(Event.event_date.in_(today_variants))
 
     city = f.city or (viewer.city if f.prefer_viewer_city else None)
+    topic_tokens = expand_event_topic_tokens(f.category, *f.keywords)
+    require_topic = bool(f.require_match) or bool(topic_tokens)
 
-    async def _run(apply_city: bool, apply_keywords: bool, apply_category: bool) -> list[Event]:
+    async def _run(*, apply_city: bool, apply_topic: bool) -> list[Event]:
         clauses = list(base)
-        score = case((Event.pinned_until.is_not(None), 40), else_=0) + case(
-            (Event.boosted_at.is_not(None), 20), else_=0
+        # Релевантность темы важнее pin/boost — иначе всегда «лента по порядку»
+        score = case((Event.pinned_until.is_not(None), 8), else_=0) + case(
+            (Event.boosted_at.is_not(None), 4), else_=0
         )
         if apply_city and city:
             exact, soft = _city_match_clause(Event.city, city)
             if f.city:
                 clauses.append(or_(exact, soft))
             score = score + case((exact, 50), (soft, 25), else_=0)
-        if apply_category and f.category:
-            cat = f.category
-            score = score + case(
-                (Event.category.ilike(f"%{cat}%"), 30),
-                (Event.title.ilike(f"%{cat}%"), 20),
-                (Event.description.ilike(f"%{cat}%"), 10),
-                else_=0,
-            )
-        if apply_keywords and f.keywords:
-            for w in f.keywords:
-                like = f"%{w}%"
+        if apply_topic and topic_tokens:
+            topic_clause = _event_topic_match_clause(topic_tokens)
+            if topic_clause is not None:
+                clauses.append(topic_clause)
+            for t in topic_tokens:
+                like = f"%{t}%"
                 score = score + case(
-                    (Event.title.ilike(like), 25),
-                    (Event.category.ilike(like), 18),
-                    (Event.description.ilike(like), 12),
-                    (Event.address.ilike(like), 8),
-                    (Event.city.ilike(like), 8),
+                    (Event.title.ilike(like), 45),
+                    (Event.category.ilike(like), 35),
+                    (Event.description.ilike(like), 22),
+                    (Event.address.ilike(like), 12),
                     else_=0,
                 )
         result = await session.execute(
@@ -524,13 +642,16 @@ async def search_events(
         )
         return list(result.scalars().all())
 
-    rows = await _run(True, True, True)
-    if not rows and f.keywords:
-        rows = await _run(True, False, True)
+    # Тема из запроса: жёсткий фильтр, без fallback на «топ закреплённых»
+    if require_topic and topic_tokens:
+        rows = await _run(apply_city=True, apply_topic=True)
+        if not rows and (f.city or f.prefer_viewer_city):
+            rows = await _run(apply_city=False, apply_topic=True)
+        return rows
+
+    rows = await _run(apply_city=True, apply_topic=False)
     if not rows and (f.city or f.prefer_viewer_city):
-        rows = await _run(False, True, True)
-    if not rows:
-        rows = await _run(False, False, False)
+        rows = await _run(apply_city=False, apply_topic=False)
     return rows
 
 
@@ -607,11 +728,25 @@ def _people_db_context(
     return "\n".join(lines)
 
 
-def _events_db_context(events: list[Event], *, keywords: list[str] | None = None) -> str:
+def _events_db_context(
+    events: list[Event],
+    *,
+    keywords: list[str] | None = None,
+    category: str | None = None,
+) -> str:
+    topic_bits = [*(keywords or [])]
+    if category:
+        topic_bits.insert(0, category)
     if not events:
-        hint = f" по запросу «{', '.join(keywords)}»" if keywords else ""
-        return f"Тусовок не найдено в БД{hint}. Не выдумывай мероприятия."
-    match = "keyword" if keywords else "ranked"
+        if topic_bits:
+            shown = ", ".join(topic_bits)
+            return (
+                f"По теме не найдено: {shown}. "
+                "В базе нет активных тусовок с такой тематикой. "
+                "Не предлагай другие мероприятия вместо запрошенной темы."
+            )
+        return "Тусовок не найдено в БД. Не выдумывай мероприятия."
+    match = "topic" if topic_bits else "ranked"
     lines = [f"Результаты поиска тусовок (match={match}, count={len(events)}):"]
     for e in events:
         lines.append(
@@ -660,21 +795,31 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "search_events_db",
-            "description": "Поиск активных тусовок/мероприятий в базе данных LUMA",
+            "description": (
+                "Поиск активных тусовок в БД LUMA по теме/категории/городу. "
+                "keywords — тема (кино, бар, шашлык); "
+                "category — «На хату», «Праздники», «Игры», «Посиделки»."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "city": {"type": "string", "description": "Город или пусто"},
-                    "keywords": {"type": "array", "items": {"type": "string"}},
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Тема/атмосфера тусовки",
+                    },
                     "today_only": {"type": "boolean"},
-                    "category": {"type": "string"},
+                    "category": {
+                        "type": "string",
+                        "description": "Каноническая категория или свободная тема",
+                    },
                     "any_city": {"type": "boolean"},
                 },
             },
         },
     },
 ]
-
 
 async def _run_tool(session: AsyncSession, viewer: User, name: str, args: dict) -> str:
     if name == "search_people_db":
@@ -718,15 +863,27 @@ async def _run_tool(session: AsyncSession, viewer: User, name: str, args: dict) 
         any_city = bool(args.get("any_city"))
         city = None if any_city else args.get("city")
         keywords = [str(k) for k in (args.get("keywords") or []) if str(k).strip()][:6]
+        raw_cat = args.get("category")
+        category = str(raw_cat).strip() if raw_cat else None
+        if category:
+            detected = _detect_event_category(category.lower())
+            if detected:
+                category = detected
+            elif not keywords:
+                # свободная тема из category → keywords
+                keywords = [category.lower()]
+                category = None
+        has_topic = bool(keywords) or bool(category)
         f = EventFilters(
             city=str(city).strip() if city else None,
             keywords=keywords,
             today_only=bool(args.get("today_only")),
-            category=str(args["category"]).strip() if args.get("category") else None,
+            category=category,
             prefer_viewer_city=not any_city and not city,
+            require_match=has_topic,
         )
         events = await search_events(session, viewer, "", limit=12, filters=f)
-        return _events_db_context(events, keywords=keywords or None)
+        return _events_db_context(events, keywords=keywords or None, category=category)
     return "Неизвестный инструмент"
 
 
@@ -756,11 +913,14 @@ async def ask_luma(session: AsyncSession, redis: Redis, user, message: str) -> s
         "Для любых вопросов про людей или тусовки СНАЧАЛА вызови инструменты "
         "search_people_db / search_events_db — они ходят в реальную БД. "
         f"Город пользователя: {user.city or 'неизвестен'}. "
-        "Опирайся только на данные инструментов. Не выдумывай имена, возраст, города. "
+        "Опирайся только на данные инструментов. Не выдумывай имена, возраст, города, тусовки. "
         "Если искали человека по имени и БД пуста — честно скажи, что не нашла, "
         "и предложи одно уточнение (город или полное имя). "
         "Не подменяй запрошенное имя другими людьми из выдачи. "
-        "При находках кратко: имя, возраст, город и одна деталь из bio. "
+        "Если искали тусовку по теме и БД пуста — честно скажи, что таких нет, "
+        "и предложи уточнить тему или город. Не подменяй тему другими мероприятиями. "
+        "При находках людей кратко: имя, возраст, город и одна деталь из bio. "
+        "При находках тусовок: название, город, дата/время и одна деталь. "
         "Отвечай на языке пользователя."
     )
     messages: list[dict] = [
