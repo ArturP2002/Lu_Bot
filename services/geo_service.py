@@ -85,15 +85,16 @@ def normalize_city_key(name: str) -> str:
 
 def sql_haversine_km(lat_col, lon_col, lat: float, lon: float):
     """SQL-выражение haversine (км) относительно точки (lat, lon)."""
-    # 2 * 6371 * asin(sqrt(...))
-    rlat = func.radians(literal(lat))
-    rlon = func.radians(literal(lon))
+    rlat = func.radians(literal(float(lat)))
+    rlon = func.radians(literal(float(lon)))
     rlat2 = func.radians(lat_col)
     rlon2 = func.radians(lon_col)
     dlat = rlat2 - rlat
     dlon = rlon2 - rlon
     a = func.pow(func.sin(dlat / 2), 2) + func.cos(rlat) * func.cos(rlat2) * func.pow(func.sin(dlon / 2), 2)
-    return 2 * _EARTH_RADIUS_KM * func.asin(func.least(1.0, func.sqrt(a)))
+    # clamp для asin: из‑за float a иногда чуть > 1
+    a_clamped = func.least(literal(1.0), func.greatest(literal(0.0), a))
+    return literal(2.0) * literal(_EARTH_RADIUS_KM) * func.asin(func.sqrt(a_clamped))
 
 
 def geo_bbox_clauses(lat_col, lon_col, lat: float, lon: float, radius_km: float) -> list:
@@ -107,16 +108,17 @@ def geo_bbox_clauses(lat_col, lon_col, lat: float, lon: float, radius_km: float)
     ]
 
 
-def sql_distance_order(lat_col, lon_col, lat: float, lon: float):
-    """ORDER BY distance (NULL coords → конец)."""
-    dist = case(
-        (
-            and_coords(lat_col, lon_col),
-            sql_haversine_km(lat_col, lon_col, lat, lon),
-        ),
-        else_=literal(1e9),
+def sql_distance_km_nullable(lat_col, lon_col, lat: float, lon: float):
+    """Расстояние в км или NULL, если у кандидата нет координат."""
+    return case(
+        (and_coords(lat_col, lon_col), sql_haversine_km(lat_col, lon_col, lat, lon)),
+        else_=None,
     )
-    return dist
+
+
+def sql_distance_order(lat_col, lon_col, lat: float, lon: float):
+    """ORDER BY distance: ближе выше, без coords — в конец."""
+    return sql_distance_km_nullable(lat_col, lon_col, lat, lon).asc().nulls_last()
 
 
 def and_coords(lat_col, lon_col):
@@ -134,10 +136,10 @@ def same_city_rank_expr(
     same_city_km: float,
 ):
     """1 = «свой город» (строка или близко), 0 = остальные."""
-    dist = sql_haversine_km(lat_col, lon_col, viewer_lat, viewer_lon)
+    dist = sql_distance_km_nullable(lat_col, lon_col, viewer_lat, viewer_lon)
     near = and_coords(lat_col, lon_col) & (dist < same_city_km)
     if viewer_city and viewer_city.strip():
-        same_str = func.lower(city_col) == viewer_city.strip().lower()
+        same_str = func.lower(func.coalesce(city_col, "")) == viewer_city.strip().lower()
         return case((or_(same_str, near), 1), else_=0)
     return case((near, 1), else_=0)
 

@@ -35,15 +35,17 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
     """Получить следующую анкету для просмотра.
 
     Лайкнутые и пропущенные анкеты в ленту больше не попадают.
-    Premium-анкеты чаще в топе: активный Premium выше остальных.
-    При geo_search_enabled + coords: сначала «свой город»/близко, затем по distance.
+    При geo_search_enabled + coords у зрителя:
+      сортировка — сначала свой город/близко, затем по возрастанию расстояния
+      (другие города тоже; без координат — в конце). Жёсткий радиус только
+      если включён feed_filter_city.
     """
     from services.app_settings_service import get_setting_bool
     from services.geo_service import (
         geo_bbox_clauses,
         has_coords,
         same_city_rank_expr,
-        sql_distance_order,
+        sql_distance_km_nullable,
         sql_haversine_km,
     )
 
@@ -88,7 +90,6 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
         elif viewer.gender == "female":
             conditions.append(or_(User.visible_to.is_(None), User.visible_to.in_(("all", "women"))))
         else:
-            # пол зрителя неизвестен — только анкеты «для всех»
             conditions.append(or_(User.visible_to.is_(None), User.visible_to == "all"))
 
     geo_enabled = await get_setting_bool(session, "geo_search_enabled")
@@ -96,15 +97,25 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
     filter_city = await get_setting_bool(session, "feed_filter_city")
 
     if use_geo and filter_city:
-        # Только в радиусе nearby
+        # Опциональный узкий режим: радиус ИЛИ тот же город текстом (без coords тоже ок)
         radius = settings.geo_nearby_radius_km
-        conditions.extend(
-            geo_bbox_clauses(User.latitude, User.longitude, viewer.latitude, viewer.longitude, radius)
+        in_radius = and_(
+            *geo_bbox_clauses(
+                User.latitude, User.longitude, viewer.latitude, viewer.longitude, radius
+            ),
+            sql_haversine_km(User.latitude, User.longitude, viewer.latitude, viewer.longitude)
+            <= radius,
         )
-        dist = sql_haversine_km(User.latitude, User.longitude, viewer.latitude, viewer.longitude)
-        conditions.append(dist <= radius)
+        city = (viewer.city or "").strip()
+        if city:
+            same_city = func.lower(func.coalesce(User.city, "")) == city.lower()
+            conditions.append(or_(in_radius, same_city))
+        else:
+            conditions.append(in_radius)
     elif not use_geo and filter_city and viewer.city:
         conditions.append(func.lower(User.city) == viewer.city.strip().lower())
+
+    # use_geo без feed_filter_city: не режем выдачу — только сортируем по distance
 
     premium_rank = case((User.premium_until > now, 1), else_=0)
     order = []
@@ -118,10 +129,13 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
             viewer_lon=viewer.longitude,
             same_city_km=settings.geo_same_city_km,
         )
+        dist = sql_distance_km_nullable(
+            User.latitude, User.longitude, viewer.latitude, viewer.longitude
+        )
         order.extend(
             [
                 same.desc(),
-                sql_distance_order(User.latitude, User.longitude, viewer.latitude, viewer.longitude),
+                dist.asc().nulls_last(),
             ]
         )
     order.extend(
