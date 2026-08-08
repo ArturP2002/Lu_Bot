@@ -356,16 +356,18 @@ async def ensure_user_geo(user, redis: Redis | None = None, *, persist: bool = T
         return False
     result = await geocode_city(city, redis)
     if not result:
+        logger.warning("ensure_user_geo: geocode failed for city=%r user_id=%s", city, getattr(user, "id", None))
         return False
-    if persist:
-        # Не затираем кастомное написание города, только координаты центра
-        user.latitude = result.latitude
-        user.longitude = result.longitude
-        if not getattr(user, "geo_source", None):
-            user.geo_source = GEO_SOURCE_CITY_CENTER
-    else:
-        user.latitude = result.latitude
-        user.longitude = result.longitude
+    user.latitude = result.latitude
+    user.longitude = result.longitude
+    user.geo_source = GEO_SOURCE_CITY_CENTER
+    logger.info(
+        "ensure_user_geo: user_id=%s city=%r -> %.5f,%.5f",
+        getattr(user, "id", None),
+        city,
+        result.latitude,
+        result.longitude,
+    )
     return True
 
 
@@ -378,13 +380,11 @@ async def ensure_event_geo(event, redis: Redis | None = None, *, persist: bool =
         return False
     result = await geocode_city(city, redis)
     if not result:
+        logger.warning("ensure_event_geo: geocode failed for city=%r event_id=%s", city, getattr(event, "id", None))
         return False
     event.latitude = result.latitude
     event.longitude = result.longitude
-    if persist and not getattr(event, "geo_source", None):
-        event.geo_source = GEO_SOURCE_CITY_CENTER
-    elif persist:
-        event.geo_source = event.geo_source or GEO_SOURCE_CITY_CENTER
+    event.geo_source = GEO_SOURCE_CITY_CENTER
     return True
 
 
@@ -421,6 +421,7 @@ async def hydrate_missing_user_geo(
             continue
         geo = await geocode_city(name, redis)
         if not geo:
+            logger.warning("hydrate_missing_user_geo: miss city=%r", name)
             continue
         await session.execute(
             update(User)
@@ -432,6 +433,7 @@ async def hydrate_missing_user_geo(
             )
         )
         filled += 1
+        logger.info("hydrate_missing_user_geo: %r -> %.5f,%.5f", name, geo.latitude, geo.longitude)
         await asyncio.sleep(0.05)
     if filled:
         await session.flush()

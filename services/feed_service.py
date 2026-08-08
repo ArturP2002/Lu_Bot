@@ -59,14 +59,20 @@ async def get_next_profile(
     exclude_ids = exclude_ids or []
     now = datetime.now(timezone.utc)
 
-    geo_enabled = await get_setting_bool(session, "geo_search_enabled")
-    if geo_enabled:
-        # Подтянуть центр города для зрителя и кандидатов без координат
+    # Координаты из города — всегда (не зависят от флага ранжирования)
+    try:
         await ensure_user_geo(viewer, redis)
-        try:
-            await hydrate_missing_user_geo(session, redis, limit_cities=30)
-        except Exception:
-            pass
+        filled = await hydrate_missing_user_geo(session, redis, limit_cities=50)
+        if filled:
+            import logging
+
+            logging.getLogger(__name__).info("hydrated geo for %s cities", filled)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("geo hydrate failed")
+
+    geo_enabled = await get_setting_bool(session, "geo_search_enabled")
 
     liked = exists(
         select(Like.id).where(
@@ -162,7 +168,7 @@ async def get_next_profile(
     query = select(User).options(selectinload(User.goal)).where(and_(*conditions))
     result = await session.execute(query.order_by(*order).limit(1))
     target = result.scalar_one_or_none()
-    if target and geo_enabled:
+    if target:
         await ensure_user_geo(target, redis)
     return target
 

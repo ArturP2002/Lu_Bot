@@ -188,12 +188,12 @@ async def find_events(
             if is_geo:
                 geo_mode = True
                 geo_enabled = await get_setting_bool(session, "geo_search_enabled")
-                if geo_enabled:
-                    await ensure_user_geo(viewer, redis)
-                    try:
-                        await hydrate_missing_event_geo(session, redis, limit_cities=30)
-                    except Exception:
-                        pass
+                await ensure_user_geo(viewer, redis)
+                try:
+                    await hydrate_missing_event_geo(session, redis, limit_cities=40)
+                except Exception:
+                    logger = __import__("logging").getLogger(__name__)
+                    logger.exception("event geo hydrate failed")
                 if geo_enabled and has_coords(viewer):
                     geo_rank_by_distance = True
                     radius = settings.geo_nearby_radius_km

@@ -150,7 +150,11 @@ export function UserProfile({ userId, toast, onBack, backLabel = '← Назад
         <DetailRow label="Баланс" value={<span className="hl mono">{detail.sparks_balance} искр</span>} />
         <DetailRow
           label="Город"
-          value={[detail.city, label(COUNTRY, detail.country, detail.country || undefined)].filter(Boolean).join(', ')}
+          value={
+            [detail.city, detail.country ? label(COUNTRY, detail.country, detail.country) : null]
+              .filter(Boolean)
+              .join(', ') || '—'
+          }
         />
         <DetailRow
           label="Координаты"
