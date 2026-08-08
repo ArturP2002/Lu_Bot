@@ -144,26 +144,10 @@ def same_city_rank_expr(
     return case((near, 1), else_=0)
 
 
-def _parse_point_pos(geometry: dict | None) -> tuple[float, float] | None:
-    """Достать lon, lat из Geometry (форматы v1 и 1.x)."""
-    if not geometry:
-        return None
-    point = geometry.get("Point")
-    raw = None
-    if isinstance(point, str):
-        raw = point
-    elif isinstance(point, dict):
-        raw = point.get("pos") or point.get("coordinates")
-        if isinstance(raw, (list, tuple)) and len(raw) >= 2:
-            try:
-                return float(raw[0]), float(raw[1])
-            except (TypeError, ValueError):
-                return None
-    # GeoJSON-подобный вариант
-    coords = geometry.get("coordinates")
-    if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+def _parse_lon_lat_from_pos(raw) -> tuple[float, float] | None:
+    if isinstance(raw, (list, tuple)) and len(raw) >= 2:
         try:
-            return float(coords[0]), float(coords[1])
+            return float(raw[0]), float(raw[1])
         except (TypeError, ValueError):
             return None
     if not raw or not isinstance(raw, str):
@@ -177,9 +161,36 @@ def _parse_point_pos(geometry: dict | None) -> tuple[float, float] | None:
         return None
 
 
+def _parse_point_pos(container: dict | None) -> tuple[float, float] | None:
+    """Достать lon, lat из Point/Geometry (форматы v1 и 1.x)."""
+    if not container:
+        return None
+
+    # {"pos": "lon lat"} или {"Point": {"pos": "..."}}
+    if "pos" in container:
+        return _parse_lon_lat_from_pos(container.get("pos"))
+
+    point = container.get("Point")
+    if isinstance(point, str):
+        return _parse_lon_lat_from_pos(point)
+    if isinstance(point, dict):
+        got = _parse_lon_lat_from_pos(point.get("pos") or point.get("coordinates"))
+        if got:
+            return got
+
+    coords = container.get("coordinates")
+    return _parse_lon_lat_from_pos(coords)
+
+
 def _parse_yandex_feature(feature: dict) -> GeocodeResult | None:
+    """Разобрать GeoObject: координаты в Point.pos (часто на корне GeoObject, не в Geometry)."""
     try:
-        parsed_pos = _parse_point_pos(feature.get("Geometry") or {})
+        parsed_pos = (
+            _parse_point_pos(feature.get("Point") if isinstance(feature.get("Point"), dict) else None)
+            or _parse_point_pos({"Point": feature.get("Point")} if feature.get("Point") is not None else None)
+            or _parse_point_pos(feature.get("Geometry") if isinstance(feature.get("Geometry"), dict) else None)
+            or _parse_point_pos(feature)
+        )
         if not parsed_pos:
             return None
         lon, lat = parsed_pos
@@ -198,11 +209,12 @@ def _parse_yandex_feature(feature: dict) -> GeocodeResult | None:
         if city:
             break
     if not city:
-        # fallback: первая часть text до запятой
         text = (feature.get("metaDataProperty") or {}).get("GeocoderMetaData", {}).get("text") or ""
-        # "Россия, Москва" → лучше последнее значимое / locality уже выше
         parts = [p.strip() for p in text.split(",") if p.strip()]
         city = parts[-1] if parts else ""
+    if not city:
+        name = (feature.get("name") or "").strip()
+        city = name
     if not city:
         return None
     return GeocodeResult(city=city[:255], latitude=lat, longitude=lon)
