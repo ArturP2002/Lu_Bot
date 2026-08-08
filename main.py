@@ -1,5 +1,4 @@
 """Точка входа бота LUMA."""
-
 import asyncio
 import logging
 import sys

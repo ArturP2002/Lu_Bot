@@ -125,6 +125,33 @@ def contact_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
     )
 
 
+def city_input_kb(lang: str = "ru", *, show_my_city: bool = False) -> ReplyKeyboardMarkup:
+    """Геолокация или текст города."""
+    from bot.texts.i18n import t
+
+    rows = [[KeyboardButton(text=t(lang, "BTN_SEND_LOCATION"), request_location=True)]]
+    if show_my_city:
+        rows.append([KeyboardButton(text=t(lang, "BTN_MY_CITY"))])
+    return ReplyKeyboardMarkup(
+        keyboard=rows,
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
+def city_confirm_kb(lang: str = "ru") -> InlineKeyboardMarkup:
+    from bot.texts.i18n import t
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(lang, "BTN_CITY_YES"), callback_data="geo:city:yes"),
+                InlineKeyboardButton(text=t(lang, "BTN_CITY_RETYPE"), callback_data="geo:city:retype"),
+            ]
+        ]
+    )
+
+
 def next_step_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     from bot.texts.i18n import t
 

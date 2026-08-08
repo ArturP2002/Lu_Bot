@@ -104,7 +104,7 @@ async def show_luma_person_card(
   edit: bool = False,
   finalize_previous: bool = False,
 ) -> None:
-  text = format_other_profile(profile, lang_of(viewer))
+  text = format_other_profile(profile, lang_of(viewer), viewer=viewer)
   kb = rate_card_kb(profile.id, lang_of(viewer))
   await edit_or_send(
     message,
@@ -131,7 +131,7 @@ async def show_luma_event_card(
 
   lang = lang_of(viewer)
   org = await get_user_by_id(session, event.organizer_id)
-  text = format_event_card(event, org, lang=lang)
+  text = format_event_card(event, org, lang=lang, viewer=viewer)
   await edit_or_send(
     message,
     text,

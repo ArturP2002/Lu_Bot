@@ -528,6 +528,14 @@ async def search_people(
     city = f.city or (viewer.city if f.prefer_viewer_city else None)
     require_name = bool(f.names) or f.require_match
 
+    from config import get_settings
+    from services.app_settings_service import get_setting_bool
+    from services.geo_service import has_coords, sql_haversine_km
+
+    settings = get_settings()
+    geo_enabled = await get_setting_bool(session, "geo_search_enabled")
+    use_geo = geo_enabled and has_coords(viewer) and (f.prefer_viewer_city or not f.city)
+
     async def _run(*, apply_city: bool, apply_keywords: bool, apply_names: bool) -> list[User]:
         clauses = list(base)
         score = User.rating_avg * 10
@@ -543,7 +551,16 @@ async def search_people(
                     (User.bio.ilike(like), 15),
                     else_=0,
                 )
-        if apply_city and city:
+        if apply_city and use_geo and not f.city:
+            # Ранжирование по близости (без жёсткого фильтра, кроме явного города в запросе)
+            dist = sql_haversine_km(User.latitude, User.longitude, viewer.latitude, viewer.longitude)
+            score = score + case(
+                (User.latitude.is_(None), 0),
+                (dist < settings.geo_same_city_km, 50),
+                (dist < settings.geo_nearby_radius_km, 25),
+                else_=0,
+            )
+        elif apply_city and city:
             exact, soft = _city_match_clause(User.city, city)
             if f.city:
                 clauses.append(or_(exact, soft))
@@ -610,13 +627,37 @@ async def search_events(
     topic_tokens = expand_event_topic_tokens(f.category, *f.keywords)
     require_topic = bool(f.require_match) or bool(topic_tokens)
 
+    from config import get_settings
+    from services.app_settings_service import get_setting_bool
+    from services.geo_service import geo_bbox_clauses, has_coords, sql_haversine_km
+
+    settings = get_settings()
+    geo_enabled = await get_setting_bool(session, "geo_search_enabled")
+    use_geo = geo_enabled and has_coords(viewer) and f.prefer_viewer_city and not f.city
+
     async def _run(*, apply_city: bool, apply_topic: bool) -> list[Event]:
         clauses = list(base)
         # Релевантность темы важнее pin/boost — иначе всегда «лента по порядку»
         score = case((Event.pinned_until.is_not(None), 8), else_=0) + case(
             (Event.boosted_at.is_not(None), 4), else_=0
         )
-        if apply_city and city:
+        if apply_city and use_geo:
+            radius = settings.geo_nearby_radius_km
+            clauses.extend(
+                geo_bbox_clauses(
+                    Event.latitude, Event.longitude, viewer.latitude, viewer.longitude, radius
+                )
+            )
+            dist = sql_haversine_km(
+                Event.latitude, Event.longitude, viewer.latitude, viewer.longitude
+            )
+            clauses.append(dist <= radius)
+            score = score + case(
+                (dist < settings.geo_same_city_km, 50),
+                (dist < radius, 25),
+                else_=0,
+            )
+        elif apply_city and city:
             exact, soft = _city_match_clause(Event.city, city)
             if f.city:
                 clauses.append(or_(exact, soft))

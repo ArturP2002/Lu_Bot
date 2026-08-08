@@ -115,9 +115,27 @@ async def renew_premium_subscriptions(ctx) -> None:
         await bot.session.close()
 
 
+async def backfill_user_event_geo(ctx) -> dict:
+    """Фоновый backfill координат (запускать вручную через enqueue)."""
+    from services.geo_backfill import backfill_user_event_geo as _run
+
+    return await _run(ctx)
+
+
+async def regeocode_entity(ctx, entity_type: str, entity_id: int) -> bool:
+    from services.geo_backfill import regeocode_entity as _run
+
+    return await _run(ctx, entity_type, entity_id)
+
+
 class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
-    functions = [send_broadcast, renew_premium_subscriptions]
+    functions = [
+        send_broadcast,
+        renew_premium_subscriptions,
+        backfill_user_event_geo,
+        regeocode_entity,
+    ]
     cron_jobs = [
         cron(renew_premium_subscriptions, minute={15}, unique=True),
     ]

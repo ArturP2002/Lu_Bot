@@ -15,6 +15,7 @@ class Registration(StatesGroup):
     age = State()
     bio = State()
     city = State()
+    city_confirm = State()
     goal_title = State()
     goal_amount = State()
     preview = State()
@@ -27,6 +28,7 @@ class ProfileEdit(StatesGroup):
     visible_to = State()
     photo = State()
     city = State()
+    city_confirm = State()
     bio = State()
     language = State()
 
@@ -51,6 +53,7 @@ class GoalFlow(StatesGroup):
 class EventCreate(StatesGroup):
     title = State()
     city = State()
+    city_confirm = State()
     address = State()
     datetime = State()
     price = State()

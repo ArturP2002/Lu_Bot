@@ -11,6 +11,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.keyboards.keyboards import (
+    city_input_kb,
     disable_confirm_kb,
     disable_goodbye_kb,
     gender_kb,
@@ -27,6 +28,13 @@ from bot.keyboards.keyboards import (
     visible_kb,
     withdraw_username_kb,
 )
+from bot.handlers.geo_city_flow import (
+    GEO_CTX_PROFILE,
+    maybe_enqueue_regeocode,
+    pending_geo_payload,
+    process_city_location,
+    process_city_text,
+)
 from bot.states.states import ProfileEdit, SparksFlow, VerificationFlow
 from bot.texts.formatters import format_own_profile
 from bot.texts.i18n import GENDER_BUTTONS, SEEKING_BUTTONS, VISIBLE_BUTTONS, lang_of, normalize_lang, t
@@ -39,11 +47,13 @@ from bot.utils.messaging import (
     safe_delete,
     safe_edit_text,
     send_ui,
+    strip_inline_keyboard,
 )
 from config import get_settings
 from models import User, Verification
 from models.entities import VerificationStatus
 from services.blogger_service import apply_blogger, blogger_link, get_or_create_blogger
+from services.geo_service import apply_geo_to_user
 from services.luma_ai_service import moderate_telegram_photo, moderate_text
 from services.referral_service import count_completed_referrals, get_available_rewards
 from services.sparks_service import withdraw_sparks
@@ -205,51 +215,75 @@ async def prof_photo_save(message: Message, state: FSMContext, user: User, redis
 
 @router.callback_query(F.data == "prof:city")
 async def prof_city_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
-  await _start_prompt(callback, state, ProfileEdit.city, tx(user, "CITY_ASK"), redis)
+  await state.set_state(ProfileEdit.city)
+  await state.update_data(geo_context=GEO_CTX_PROFILE)
+  await safe_delete(callback.message)
+  sent = await send_ui(
+    callback.message,
+    tx(user, "CITY_ASK"),
+    reply_markup=city_input_kb(lang_of(user)),
+    redis=redis,
+  )
+  await state.update_data(prompt_message_id=sent.message_id if sent else None)
+  await callback.answer()
+
+
+@router.message(ProfileEdit.city, F.location)
+async def prof_city_location(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+  await process_city_location(
+    message, user, state, redis, confirm_state=ProfileEdit.city_confirm
+  )
 
 
 @router.message(ProfileEdit.city, F.text)
-async def prof_city_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+async def prof_city_text(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+  await process_city_text(
+    message, user, state, redis, confirm_state=ProfileEdit.city_confirm
+  )
+
+
+@router.callback_query(ProfileEdit.city_confirm, F.data == "geo:city:retype")
+async def prof_city_retype(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  await state.set_state(ProfileEdit.city)
+  await state.update_data(
+    pending_city=None,
+    pending_lat=None,
+    pending_lon=None,
+    pending_geo_source=None,
+    geo_needs_regeocode=False,
+  )
+  await strip_inline_keyboard(callback.message)
+  sent = await send_ui(
+    callback.message,
+    tx(user, "CITY_ASK"),
+    reply_markup=city_input_kb(lang_of(user)),
+    redis=redis,
+  )
+  await state.update_data(prompt_message_id=sent.message_id if sent else None)
+  await callback.answer()
+
+
+@router.callback_query(ProfileEdit.city_confirm, F.data == "geo:city:yes")
+async def prof_city_confirm(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
   data = await state.get_data()
   prompt_id = data.get("prompt_message_id")
-  user.city = message.text.strip()[:255]
-  await state.clear()
-  await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
-  await show_profile(message, user, redis=redis)
-
-
-@router.callback_query(F.data == "prof:bio")
-async def prof_bio_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
-  await _start_prompt(callback, state, ProfileEdit.bio, t(user, "REG_ASK_BIO"), redis)
-
-
-@router.message(ProfileEdit.bio, F.text)
-async def prof_bio_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-  data = await state.get_data()
-  prompt_id = data.get("prompt_message_id")
-  ok, reason = await moderate_text(message.text)
-  if not ok:
-    await message.answer(t(user, "MODERATION_BLOCKED", reason=reason))
+  payload = pending_geo_payload(data)
+  if not payload["city"]:
+    await callback.answer(t(user, "ERR_INVALID_INPUT"), show_alert=True)
     return
-  user.bio = message.text.strip()[:1000]
+  apply_geo_to_user(
+    user,
+    city=payload["city"],
+    lat=payload["latitude"],
+    lon=payload["longitude"],
+    source=payload["geo_source"],
+  )
+  await maybe_enqueue_regeocode("user", user.id, payload["needs_regeocode"])
   await state.clear()
-  await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
-  await show_profile(message, user, redis=redis)
-
-
-@router.callback_query(F.data == "prof:city")
-async def prof_city_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
-  await _start_prompt(callback, state, ProfileEdit.city, tx(user, "CITY_ASK"), redis)
-
-
-@router.message(ProfileEdit.city, F.text)
-async def prof_city_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-  data = await state.get_data()
-  prompt_id = data.get("prompt_message_id")
-  user.city = message.text.strip()[:255]
-  await state.clear()
-  await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
-  await show_profile(message, user, redis=redis)
+  await strip_inline_keyboard(callback.message)
+  await cleanup_user_and_prompt(callback.message, prompt_message_id=prompt_id)
+  await show_profile(callback.message, user, redis=redis)
+  await callback.answer()
 
 
 @router.callback_query(F.data == "prof:bio")

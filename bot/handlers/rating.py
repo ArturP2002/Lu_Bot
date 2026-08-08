@@ -49,8 +49,9 @@ async def send_user_card(
     prefix: str = "",
     reply_markup=None,
     lang: str = "ru",
+    viewer: User | None = None,
 ) -> None:
-    text = format_other_profile(profile, lang)
+    text = format_other_profile(profile, lang, viewer=viewer)
     if prefix:
         text = f"{prefix}\n\n{text}"
     if profile.photo_file_id:
@@ -113,7 +114,7 @@ async def show_next_profile(
     from services.event_service import sync_events_organized
 
     await sync_events_organized(session, target)
-    text = format_other_profile(target, lang_of(user))
+    text = format_other_profile(target, lang_of(user), viewer=user)
     kb = rate_card_kb(target.id, lang_of(user))
     await edit_or_send(
         message,
@@ -187,7 +188,7 @@ async def like_view_profile(callback: CallbackQuery, user: User, session: AsyncS
     if not profile:
         await callback.answer(t(user, "RATE_NOT_FOUND"), show_alert=True)
         return
-    text = format_other_profile(profile, lang_of(user))
+    text = format_other_profile(profile, lang_of(user), viewer=user)
     await safe_edit_media(
         callback.message,
         text,
@@ -276,7 +277,7 @@ async def rate_stars(callback: CallbackQuery, user: User, session: AsyncSession,
     await recalculate_rating(session, target_id)
     await callback.answer(t(user, "RATE_STARS_DONE", stars=stars))
     target = await get_user_by_id(session, target_id)
-    text = format_other_profile(target, lang_of(user)) if target else t(user, "RATE_AFTER_STARS")
+    text = format_other_profile(target, lang_of(user), viewer=user) if target else t(user, "RATE_AFTER_STARS")
     text = f"{text}\n\n{t(user, 'RATE_AFTER_STARS')}"
     await safe_edit_media(
         callback.message,
@@ -355,6 +356,7 @@ async def rate_support_amount(
                 prefix=t(target, "RATE_SUPPORT_NOTIFY_OPEN", amount=amount),
                 reply_markup=rate_card_kb(user.id, lang_of(target)),
                 lang=lang_of(target),
+                viewer=target,
             )
     except Exception:
         pass
@@ -366,7 +368,7 @@ async def rate_support_amount(
     await sync_events_organized(session, target)
     text = (
         f"{t(user, 'RATE_SUPPORT_DONE', name=target.display_name or '—', amount=amount)}\n\n"
-        f"{format_other_profile(target, lang_of(user))}"
+        f"{format_other_profile(target, lang_of(user), viewer=user)}"
     )
     await edit_or_send(
         message,

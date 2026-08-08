@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     fragment_show_sender: bool = False
     fragment_min_stars: int = 50
 
+    # Геокодер Yandex + радиусы поиска «рядом»
+    yandex_geocoder_api_key: str = ""
+    geo_nearby_radius_km: float = 300.0
+    geo_same_city_km: float = 25.0
+    geo_http_timeout_sec: float = 3.0
+    geo_cache_ttl_fwd_sec: int = 7_776_000  # 90 дней
+    geo_cache_ttl_rev_sec: int = 2_592_000  # 30 дней
+
     @property
     def admin_id_list(self) -> List[int]:
         """Список Telegram ID администраторов."""
@@ -78,6 +86,11 @@ class Settings(BaseSettings):
             and self.fragment_stel_token.strip()
             and self.fragment_stel_ton_token.strip()
         )
+
+    @property
+    def yandex_geocoder_configured(self) -> bool:
+        """Есть ли ключ Yandex Geocoder."""
+        return bool(self.yandex_geocoder_api_key.strip())
 
 
 @lru_cache

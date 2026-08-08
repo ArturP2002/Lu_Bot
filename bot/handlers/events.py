@@ -4,13 +4,14 @@ from datetime import datetime, timezone
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.keyboards.keyboards import (
     app_decision_kb,
+    city_input_kb,
     complaint_reasons_kb,
     event_attending_kb,
     event_card_kb,
@@ -25,6 +26,13 @@ from bot.keyboards.keyboards import (
     invite_kb,
     my_events_list_kb,
 )
+from bot.handlers.geo_city_flow import (
+    GEO_CTX_EVENT,
+    maybe_enqueue_regeocode,
+    pending_geo_payload,
+    process_city_location,
+    process_city_text,
+)
 from bot.states.states import EventCreate, EventEdit, EventReport
 from bot.texts import messages as msg
 from bot.texts.formatters import format_other_profile
@@ -35,6 +43,7 @@ from bot.utils.messaging import (
     safe_edit_media,
     safe_edit_text,
     send_ui,
+    strip_inline_keyboard,
 )
 from config import get_settings
 from models import Complaint, Event, EventApplication, EventCategory, EventStatus, User
@@ -52,6 +61,7 @@ from services.event_service import (
     send_mass_invites,
     sync_events_organized,
 )
+from services.geo_service import distance_suffix_for, geocode_city, GEO_SOURCE_CITY_CENTER
 from services.luma_ai_service import moderate_text
 from services.sparks_service import has_paid_event_fee, pay_event_fee
 from services.user_service import get_user_by_id, is_premium
@@ -79,7 +89,13 @@ async def _event_manage_kb(
     )
 
 
-def format_event_card(event: Event, organizer: User | None = None, lang: str = "ru") -> str:
+def format_event_card(
+    event: Event,
+    organizer: User | None = None,
+    lang: str = "ru",
+    *,
+    viewer: User | None = None,
+) -> str:
     org = ""
     if organizer:
         org = f"\n👤 {organizer.display_name or organizer.username or '—'}"
@@ -89,6 +105,7 @@ def format_event_card(event: Event, organizer: User | None = None, lang: str = "
         pinned_until = pinned_until.replace(tzinfo=timezone.utc)
     pin = " 📌" if pinned_until and pinned_until > now else ""
     boost = " ⬆️" if event.boosted_at else ""
+    distance = distance_suffix_for(viewer, event, lang) if viewer else ""
     return tx(
         lang,
         "EVENT_CARD",
@@ -97,6 +114,7 @@ def format_event_card(event: Event, organizer: User | None = None, lang: str = "
         boost=boost,
         category=localize_stored_category(event.category, lang),
         city=event.city,
+        distance=distance,
         address=event.address,
         date=event.event_date,
         time=event.event_time,
@@ -122,7 +140,7 @@ async def _send_application_card(
   lang: str = "ru",
 ) -> None:
   """Карточка заявки: фото + анкета + кнопки принять/отклонить."""
-  text = format_other_profile(applicant, lang)
+  text = format_other_profile(applicant, lang)  # organizer view; no viewer distance
   if prefix:
     text = f"{prefix}\n\n{text}"
   kb = app_decision_kb(app_id, lang=lang)
@@ -154,12 +172,13 @@ async def show_event_card(
   lang: str = "ru",
   redis: Redis | None = None,
   session: AsyncSession | None = None,
+  viewer: User | None = None,
 ) -> None:
   """Показать карточку тусовки (по deep link или из ленты)."""
   org = None
   if session:
     org = await get_user_by_id(session, event.organizer_id)
-  text = format_event_card(event, org, lang=lang)
+  text = format_event_card(event, org, lang=lang, viewer=viewer)
   await send_ui(
     message,
     text,
@@ -176,6 +195,7 @@ async def open_event_by_id(
   *,
   lang: str = "ru",
   redis: Redis | None = None,
+  viewer: User | None = None,
 ) -> bool:
   """Открыть тусовку по ID. True — найдена и показана."""
   event = await session.get(Event, event_id)
@@ -185,7 +205,7 @@ async def open_event_by_id(
   if event.status == EventStatus.CLOSED.value:
     await send_ui(message, tx(lang, "EVENT_CLOSED", title=event.title), redis=redis)
     return False
-  await show_event_card(message, event, lang=lang, redis=redis, session=session)
+  await show_event_card(message, event, lang=lang, redis=redis, session=session, viewer=viewer)
   return True
 
 
@@ -206,21 +226,82 @@ async def ev_create_start(
 @router.message(EventCreate.title, F.text)
 async def ev_create_title(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   data = await state.get_data()
-  await state.update_data(title=message.text.strip()[:255])
+  await state.update_data(title=message.text.strip()[:255], geo_context=GEO_CTX_EVENT)
   await state.set_state(EventCreate.city)
   await cleanup_user_and_prompt(message, prompt_message_id=data.get("prompt_message_id"))
-  prompt = await send_ui(message, tx(user, "EVENT_ASK_CITY"), redis=redis)
+  prompt = await send_ui(
+    message,
+    tx(user, "EVENT_ASK_CITY"),
+    reply_markup=city_input_kb(lang_of(user), show_my_city=bool(user.city)),
+    redis=redis,
+  )
   await state.update_data(prompt_message_id=prompt.message_id)
+
+
+@router.message(EventCreate.city, F.location)
+async def ev_create_city_location(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+  await process_city_location(
+    message, user, state, redis, confirm_state=EventCreate.city_confirm
+  )
 
 
 @router.message(EventCreate.city, F.text)
-async def ev_create_city(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-  data = await state.get_data()
-  await state.update_data(city=message.text.strip()[:255])
-  await state.set_state(EventCreate.address)
-  await cleanup_user_and_prompt(message, prompt_message_id=data.get("prompt_message_id"))
-  prompt = await send_ui(message, tx(user, "EVENT_ASK_ADDRESS"), redis=redis)
+async def ev_create_city_text(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+  await process_city_text(
+    message,
+    user,
+    state,
+    redis,
+    confirm_state=EventCreate.city_confirm,
+    allow_my_city=True,
+  )
+
+
+@router.callback_query(EventCreate.city_confirm, F.data == "geo:city:retype")
+async def ev_create_city_retype(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  await state.set_state(EventCreate.city)
+  await state.update_data(
+    pending_city=None,
+    pending_lat=None,
+    pending_lon=None,
+    pending_geo_source=None,
+    geo_needs_regeocode=False,
+  )
+  await strip_inline_keyboard(callback.message)
+  prompt = await send_ui(
+    callback.message,
+    tx(user, "EVENT_ASK_CITY"),
+    reply_markup=city_input_kb(lang_of(user), show_my_city=bool(user.city)),
+    redis=redis,
+  )
   await state.update_data(prompt_message_id=prompt.message_id)
+  await callback.answer()
+
+
+@router.callback_query(EventCreate.city_confirm, F.data == "geo:city:yes")
+async def ev_create_city_confirm(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  data = await state.get_data()
+  payload = pending_geo_payload(data)
+  if not payload["city"]:
+    await callback.answer(t(user, "ERR_INVALID_INPUT"), show_alert=True)
+    return
+  await state.update_data(
+    city=payload["city"],
+    latitude=payload["latitude"],
+    longitude=payload["longitude"],
+    geo_source=payload["geo_source"],
+    geo_needs_regeocode=payload["needs_regeocode"],
+  )
+  await state.set_state(EventCreate.address)
+  await strip_inline_keyboard(callback.message)
+  prompt = await send_ui(
+    callback.message,
+    tx(user, "EVENT_ASK_ADDRESS"),
+    reply_markup=ReplyKeyboardRemove(),
+    redis=redis,
+  )
+  await state.update_data(prompt_message_id=prompt.message_id)
+  await callback.answer()
 
 
 @router.message(EventCreate.address, F.text)
@@ -338,6 +419,9 @@ async def ev_create_description(
     organizer_id=user.id,
     title=data["title"],
     city=data["city"],
+    latitude=data.get("latitude"),
+    longitude=data.get("longitude"),
+    geo_source=data.get("geo_source"),
     address=data["address"],
     event_date=data["event_date"],
     event_time=data["event_time"],
@@ -350,6 +434,9 @@ async def ev_create_description(
     status=EventStatus.ACTIVE.value,
   )
   session.add(event)
+  await session.flush()
+  if data.get("geo_needs_regeocode"):
+    await maybe_enqueue_regeocode("event", event.id, True)
   await state.clear()
   await cleanup_user_and_prompt(message, prompt_message_id=data.get("prompt_message_id"))
   await send_ui(
@@ -451,7 +538,7 @@ async def ev_open(callback: CallbackQuery, user: User, session: AsyncSession, re
   if not event or event.status == EventStatus.DELETED.value:
     await callback.answer(tx(user, "EVENT_NOT_FOUND"), show_alert=True)
     return
-  text = format_event_card(event, lang=lang)
+  text = format_event_card(event, lang=lang, viewer=user)
   await safe_edit_media(
     callback.message,
     text,
@@ -600,7 +687,7 @@ async def ev_cat_browse(callback: CallbackQuery, user: User, session: AsyncSessi
     await callback.answer()
     return
   org = await get_user_by_id(session, event.organizer_id)
-  text = format_event_card(event, org, lang=lang)
+  text = format_event_card(event, org, lang=lang, viewer=user)
   from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
   kb = InlineKeyboardMarkup(
@@ -640,7 +727,7 @@ async def ev_next(callback: CallbackQuery, user: User, session: AsyncSession, re
     await callback.answer()
     return
   org = await get_user_by_id(session, event.organizer_id)
-  text = format_event_card(event, org, lang=lang)
+  text = format_event_card(event, org, lang=lang, viewer=user)
   from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
   cat_part = f":{cat_id}" if cat_id else ""
@@ -1140,7 +1227,19 @@ async def ev_edit_text_save(
   if field == "title":
     event.title = value[:255]
   elif field == "city":
-    event.city = value[:255]
+    city_name = value[:255]
+    event.city = city_name
+    geo = await geocode_city(city_name, redis)
+    if geo:
+      event.city = geo.city
+      event.latitude = geo.latitude
+      event.longitude = geo.longitude
+      event.geo_source = GEO_SOURCE_CITY_CENTER
+    else:
+      event.latitude = None
+      event.longitude = None
+      event.geo_source = None
+      await maybe_enqueue_regeocode("event", event.id, True)
   elif field == "address":
     event.address = value[:512]
   elif field == "datetime":

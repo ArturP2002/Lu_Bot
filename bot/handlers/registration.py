@@ -17,6 +17,14 @@ from bot.keyboards.keyboards import (
     seeking_kb,
     visible_kb,
 )
+from bot.handlers.geo_city_flow import (
+    GEO_CTX_REG,
+    ask_city,
+    maybe_enqueue_regeocode,
+    pending_geo_payload,
+    process_city_location,
+    process_city_text,
+)
 from bot.states.states import Registration
 from bot.texts.formatters import format_own_profile
 from bot.texts.i18n import (
@@ -41,6 +49,7 @@ from bot.utils.messaging import (
 from config import get_settings
 from models import Goal, Referral, User
 from services.blogger_service import record_blogger_view
+from services.geo_service import apply_geo_to_user
 from services.luma_ai_service import moderate_telegram_photo, moderate_text
 from services.referral_service import process_referral_on_profile_complete
 
@@ -88,7 +97,7 @@ async def cmd_start(
         except ValueError:
             await send_ui(message, t(user, "EVENT_NOT_FOUND"), redis=redis)
             return
-        await open_event_by_id(message, session, event_id, lang=lang_of(user), redis=redis)
+        await open_event_by_id(message, session, event_id, lang=lang_of(user), redis=redis, viewer=user)
         return
 
     if payload.startswith("evgroup_") and user.profile_completed:
@@ -231,15 +240,60 @@ async def reg_age(message: Message, state: FSMContext, user: User, redis: Redis)
     user.age = int(message.text)
     await state.set_state(Registration.city)
     await safe_delete(message)
-    await replace_ui(message, t(user, "REG_PRIVACY_CITY"), redis=redis)
+    await ask_city(message, user, state, redis, context=GEO_CTX_REG)
+
+
+@router.message(Registration.city, F.location)
+async def reg_city_location(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+    await safe_delete(message)
+    await process_city_location(
+        message, user, state, redis, confirm_state=Registration.city_confirm
+    )
 
 
 @router.message(Registration.city, F.text)
-async def reg_city(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-    user.city = message.text.strip()[:255]
-    await state.set_state(Registration.bio)
+async def reg_city_text(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
     await safe_delete(message)
-    await replace_ui(message, t(user, "REG_ASK_BIO"), redis=redis)
+    await process_city_text(
+        message, user, state, redis, confirm_state=Registration.city_confirm
+    )
+
+
+@router.callback_query(Registration.city_confirm, F.data == "geo:city:retype")
+async def reg_city_retype(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+    await state.set_state(Registration.city)
+    await state.update_data(
+        pending_city=None,
+        pending_lat=None,
+        pending_lon=None,
+        pending_geo_source=None,
+        geo_needs_regeocode=False,
+    )
+    await strip_inline_keyboard(callback.message)
+    await ask_city(callback.message, user, state, redis, context=GEO_CTX_REG)
+    await callback.answer()
+
+
+@router.callback_query(Registration.city_confirm, F.data == "geo:city:yes")
+async def reg_city_confirm(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+    data = await state.get_data()
+    payload = pending_geo_payload(data)
+    if not payload["city"]:
+        await callback.answer(t(user, "ERR_INVALID_INPUT"), show_alert=True)
+        return
+    apply_geo_to_user(
+        user,
+        city=payload["city"],
+        lat=payload["latitude"],
+        lon=payload["longitude"],
+        source=payload["geo_source"],
+    )
+    if payload["needs_regeocode"] and user.id:
+        await maybe_enqueue_regeocode("user", user.id, True)
+    await state.set_state(Registration.bio)
+    await strip_inline_keyboard(callback.message)
+    await send_ui(callback.message, t(user, "REG_ASK_BIO"), redis=redis)
+    await callback.answer()
 
 
 @router.message(Registration.bio, F.text)
@@ -312,5 +366,12 @@ async def reg_finish(
     if pending_event_id:
         from bot.handlers.events import open_event_by_id
 
-        await open_event_by_id(callback.message, session, int(pending_event_id), lang=lang_of(user), redis=redis)
+        await open_event_by_id(
+            callback.message,
+            session,
+            int(pending_event_id),
+            lang=lang_of(user),
+            redis=redis,
+            viewer=user,
+        )
     await callback.answer()

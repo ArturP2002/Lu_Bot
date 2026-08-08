@@ -6,7 +6,10 @@ from sqlalchemy import and_, case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from config import get_settings
 from models import Like, ProfileSkip, Rating, User
+
+settings = get_settings()
 
 
 async def record_profile_skip(session: AsyncSession, from_user_id: int, to_user_id: int) -> bool:
@@ -33,8 +36,16 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
 
     Лайкнутые и пропущенные анкеты в ленту больше не попадают.
     Premium-анкеты чаще в топе: активный Premium выше остальных.
+    При geo_search_enabled + coords: сначала «свой город»/близко, затем по distance.
     """
     from services.app_settings_service import get_setting_bool
+    from services.geo_service import (
+        geo_bbox_clauses,
+        has_coords,
+        same_city_rank_expr,
+        sql_distance_order,
+        sql_haversine_km,
+    )
 
     exclude_ids = exclude_ids or []
     now = datetime.now(timezone.utc)
@@ -80,33 +91,59 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
             # пол зрителя неизвестен — только анкеты «для всех»
             conditions.append(or_(User.visible_to.is_(None), User.visible_to == "all"))
 
-    # город
-    if await get_setting_bool(session, "feed_filter_city") and viewer.city:
+    geo_enabled = await get_setting_bool(session, "geo_search_enabled")
+    use_geo = geo_enabled and has_coords(viewer)
+    filter_city = await get_setting_bool(session, "feed_filter_city")
+
+    if use_geo and filter_city:
+        # Только в радиусе nearby
+        radius = settings.geo_nearby_radius_km
+        conditions.extend(
+            geo_bbox_clauses(User.latitude, User.longitude, viewer.latitude, viewer.longitude, radius)
+        )
+        dist = sql_haversine_km(User.latitude, User.longitude, viewer.latitude, viewer.longitude)
+        conditions.append(dist <= radius)
+    elif not use_geo and filter_city and viewer.city:
         conditions.append(func.lower(User.city) == viewer.city.strip().lower())
 
     premium_rank = case((User.premium_until > now, 1), else_=0)
-    query = select(User).options(selectinload(User.goal)).where(and_(*conditions))
-    result = await session.execute(
-        query.order_by(
+    order = []
+    if use_geo:
+        same = same_city_rank_expr(
+            User.city,
+            User.latitude,
+            User.longitude,
+            viewer_city=viewer.city,
+            viewer_lat=viewer.latitude,
+            viewer_lon=viewer.longitude,
+            same_city_km=settings.geo_same_city_km,
+        )
+        order.extend(
+            [
+                same.desc(),
+                sql_distance_order(User.latitude, User.longitude, viewer.latitude, viewer.longitude),
+            ]
+        )
+    order.extend(
+        [
             premium_rank.desc(),
             User.premium_until.desc().nullslast(),
             User.rating_avg.desc(),
             User.id,
-        ).limit(1)
+        ]
     )
+
+    query = select(User).options(selectinload(User.goal)).where(and_(*conditions))
+    result = await session.execute(query.order_by(*order).limit(1))
     return result.scalar_one_or_none()
 
 
 async def recalculate_rating(session: AsyncSession, user_id: int) -> None:
-    """Пересчитать средний рейтинг пользователя."""
-    result = await session.execute(select(Rating).where(Rating.to_user_id == user_id))
-    ratings = result.scalars().all()
+    result = await session.execute(
+        select(func.avg(Rating.stars), func.count(Rating.id)).where(Rating.to_user_id == user_id)
+    )
+    avg, count = result.one()
     user = await session.get(User, user_id)
-    if not user:
-        return
-    if not ratings:
-        user.rating_avg = 0.0
-        user.rating_count = 0
-    else:
-        user.rating_count = len(ratings)
-        user.rating_avg = round(sum(r.stars for r in ratings) / len(ratings), 1)
+    if user:
+        user.rating_avg = float(avg or 0)
+        user.rating_count = int(count or 0)

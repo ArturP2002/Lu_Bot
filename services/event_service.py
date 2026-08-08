@@ -13,7 +13,9 @@ from models import Event, EventApplication, EventCategory, EventStatus, User
 from models.entities import ApplicationStatus
 from services.sparks_service import add_transaction
 from services.user_service import is_premium
+from bot.texts.i18n import lang_of
 from bot.texts.ui_labels import tx
+from services.geo_service import distance_suffix_for
 
 settings = get_settings()
 
@@ -149,31 +151,75 @@ async def find_events(
 
     filter_type:
       - time (Сегодня) — по дате события «сегодня» (МСК) и/или тегу категории
-      - geo (Рядом) — тот же город, что у зрителя
+      - geo (Рядом) — по расстоянию (если geo_search_enabled) или тот же город
       - type — тематика (На хату, Игры, …) по полю Event.category
     """
+    from services.app_settings_service import get_setting_bool
+    from services.geo_service import (
+        geo_bbox_clauses,
+        has_coords,
+        sql_distance_order,
+        sql_haversine_km,
+    )
+
     now = datetime.now(ZoneInfo("Europe/Moscow"))
     today_variants = _today_date_variants(now)
     clauses = [Event.status == EventStatus.ACTIVE.value]
     if exclude_id:
         clauses.append(Event.id != exclude_id)
 
+    geo_mode = False
+    geo_rank_by_distance = False
     if category_id:
         category = await session.get(EventCategory, category_id)
         if category:
-            clauses.extend(_category_filter_clauses(category, viewer, today_variants))
+            ft = (category.filter_type or "type").strip().lower()
+            name_l = (category.name or "").strip().lower()
+            is_geo = (
+                ft == "geo"
+                or name_l in {"рядом", "near"}
+                or "рядом" in name_l
+                or "near" in name_l
+            )
+            if is_geo:
+                geo_mode = True
+                geo_enabled = await get_setting_bool(session, "geo_search_enabled")
+                if geo_enabled and has_coords(viewer):
+                    geo_rank_by_distance = True
+                    radius = settings.geo_nearby_radius_km
+                    clauses.extend(
+                        geo_bbox_clauses(
+                            Event.latitude,
+                            Event.longitude,
+                            viewer.latitude,
+                            viewer.longitude,
+                            radius,
+                        )
+                    )
+                    dist = sql_haversine_km(
+                        Event.latitude, Event.longitude, viewer.latitude, viewer.longitude
+                    )
+                    clauses.append(dist <= radius)
+                else:
+                    clauses.extend(_geo_city_fallback_clauses(viewer))
+            else:
+                clauses.extend(_category_filter_clauses(category, viewer, today_variants))
 
-    stmt = (
-        select(Event)
-        .where(and_(*clauses))
-        .order_by(
+    order = []
+    if geo_rank_by_distance:
+        order.append(
+            sql_distance_order(Event.latitude, Event.longitude, viewer.latitude, viewer.longitude)
+        )
+    order.extend(
+        [
             case((Event.pinned_until > datetime.now(timezone.utc), 1), else_=0).desc(),
             Event.pinned_until.desc().nullslast(),
             Event.boosted_at.desc().nullslast(),
             Event.id.desc(),
-        )
-        .limit(limit)
+        ]
     )
+
+    stmt = select(Event).where(and_(*clauses)).order_by(*order).limit(limit)
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
@@ -190,12 +236,19 @@ def _today_date_variants(now: datetime | None = None) -> list[str]:
     ]
 
 
+def _geo_city_fallback_clauses(viewer: User) -> list:
+    city = (viewer.city or "").strip()
+    if city:
+        return [func.lower(Event.city) == city.lower()]
+    return [Event.id == -1]
+
+
 def _category_filter_clauses(
     category: EventCategory,
     viewer: User,
     today_variants: list[str],
 ) -> list:
-    """SQL-условия для категории поиска."""
+    """SQL-условия для категории поиска (не geo — geo обрабатывается в find_events)."""
     ft = (category.filter_type or "type").strip().lower()
     name = (category.name or "").strip()
     name_l = name.lower()
@@ -212,13 +265,9 @@ def _category_filter_clauses(
             )
         ]
 
-    # Рядом / geo — тот же город
+    # Рядом / geo — fallback (основной путь в find_events)
     if ft == "geo" or name_l in {"рядом", "near"} or "рядом" in name_l or "near" in name_l:
-        city = (viewer.city or "").strip()
-        if city:
-            return [func.lower(Event.city) == city.lower()]
-        # Без города в анкете — нечего искать «рядом»
-        return [Event.id == -1]
+        return _geo_city_fallback_clauses(viewer)
 
     # Тематика — гибкое совпадение по названию / emoji+название
     return [
@@ -260,7 +309,10 @@ async def mass_invite_candidates(
     *,
     limit: int = MASS_INVITE_LIMIT,
 ) -> list[User]:
-    """Подходящие пользователи рядом (тот же город, завершённая анкета)."""
+    """Подходящие пользователи рядом (coords или тот же город, завершённая анкета)."""
+    from services.app_settings_service import get_setting_bool
+    from services.geo_service import geo_bbox_clauses, has_coords, sql_haversine_km, sql_distance_order
+
     already = select(EventApplication.user_id).where(EventApplication.event_id == event.id)
     clauses = [
         User.profile_completed.is_(True),
@@ -269,7 +321,20 @@ async def mass_invite_candidates(
         User.id != event.organizer_id,
         User.id.notin_(already),
     ]
-    if event.city:
+    order = [User.id.desc()]
+    geo_enabled = await get_setting_bool(session, "geo_search_enabled")
+    if geo_enabled and has_coords(event):
+        radius = settings.geo_nearby_radius_km
+        clauses.extend(
+            geo_bbox_clauses(User.latitude, User.longitude, event.latitude, event.longitude, radius)
+        )
+        dist = sql_haversine_km(User.latitude, User.longitude, event.latitude, event.longitude)
+        clauses.append(dist <= radius)
+        order = [
+            sql_distance_order(User.latitude, User.longitude, event.latitude, event.longitude),
+            User.id.desc(),
+        ]
+    elif event.city:
         clauses.append(func.lower(User.city) == event.city.lower())
     # Гендерный баланс: если нужны парни/девушки
     gender_or = []
@@ -280,7 +345,7 @@ async def mass_invite_candidates(
     if gender_or:
         clauses.append(or_(*gender_or))
 
-    result = await session.execute(select(User).where(and_(*clauses)).limit(limit))
+    result = await session.execute(select(User).where(and_(*clauses)).order_by(*order).limit(limit))
     return list(result.scalars().all())
 
 
@@ -306,6 +371,7 @@ async def send_mass_invites(
             "MASS_INVITE",
             title=event.title,
             city=event.city,
+            distance=distance_suffix_for(cand, event, lang_of(cand)),
             address=event.address,
             date=event.event_date,
             time=event.event_time,

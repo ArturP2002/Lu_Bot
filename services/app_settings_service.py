@@ -35,6 +35,7 @@ def env_defaults() -> dict[str, str]:
         "feed_filter_seeking": "1",
         "feed_filter_visible_to": "0",
         "feed_filter_city": "0",
+        "geo_search_enabled": "0",
     }
 
 
@@ -167,8 +168,15 @@ SETTING_META: list[dict] = [
     },
     {
         "key": "feed_filter_city",
-        "label": "Фильтр по городу",
-        "hint": "Показывать только анкеты из того же города",
+        "label": "Фильтр по городу / рядом",
+        "hint": "При геопоиске — только в радиусе nearby; иначе точный город",
+        "type": "bool",
+        "group": "feed",
+    },
+    {
+        "key": "geo_search_enabled",
+        "label": "Геопоиск по координатам",
+        "hint": "Ранжирование анкет/тусовок по расстоянию (нужен Yandex Geocoder + backfill)",
         "type": "bool",
         "group": "feed",
     },

@@ -67,11 +67,14 @@ def format_own_profile(user: User, lang_or_user=None) -> str:
         seeking=_attr_label("SEEKING", user.seeking, lang),
         visible=_attr_label("VISIBLE", user.visible_to, lang),
         city=escape(user.city or "—"),
+        distance="",
     )
 
 
-def format_other_profile(user: User, lang_or_user="ru") -> str:
+def format_other_profile(user: User, lang_or_user="ru", *, viewer: User | None = None) -> str:
     """Формат карточки чужой анкеты."""
+    from services.geo_service import distance_suffix_for
+
     lang = normalize_lang(lang_or_user if isinstance(lang_or_user, str) else lang_of(lang_or_user))
     goal = user.goal
     if goal and goal.target_sparks:
@@ -94,6 +97,8 @@ def format_other_profile(user: User, lang_or_user="ru") -> str:
     if user.verified:
         badges += " ✅"
 
+    distance = distance_suffix_for(viewer, user, lang) if viewer else ""
+
     return tx(
         lang,
         "PROFILE_OTHER",
@@ -107,4 +112,5 @@ def format_other_profile(user: User, lang_or_user="ru") -> str:
         organized=user.events_organized,
         goal=goal_text,
         city=user.city or "—",
+        distance=distance,
     )
