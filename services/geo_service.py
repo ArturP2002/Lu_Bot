@@ -144,10 +144,45 @@ def same_city_rank_expr(
     return case((near, 1), else_=0)
 
 
+def _parse_point_pos(geometry: dict | None) -> tuple[float, float] | None:
+    """Достать lon, lat из Geometry (форматы v1 и 1.x)."""
+    if not geometry:
+        return None
+    point = geometry.get("Point")
+    raw = None
+    if isinstance(point, str):
+        raw = point
+    elif isinstance(point, dict):
+        raw = point.get("pos") or point.get("coordinates")
+        if isinstance(raw, (list, tuple)) and len(raw) >= 2:
+            try:
+                return float(raw[0]), float(raw[1])
+            except (TypeError, ValueError):
+                return None
+    # GeoJSON-подобный вариант
+    coords = geometry.get("coordinates")
+    if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+        try:
+            return float(coords[0]), float(coords[1])
+        except (TypeError, ValueError):
+            return None
+    if not raw or not isinstance(raw, str):
+        return None
+    parts = raw.replace(",", " ").split()
+    if len(parts) < 2:
+        return None
+    try:
+        return float(parts[0]), float(parts[1])
+    except ValueError:
+        return None
+
+
 def _parse_yandex_feature(feature: dict) -> GeocodeResult | None:
     try:
-        pos = feature["Geometry"]["Point"].split()
-        lon, lat = float(pos[0]), float(pos[1])
+        parsed_pos = _parse_point_pos(feature.get("Geometry") or {})
+        if not parsed_pos:
+            return None
+        lon, lat = parsed_pos
     except (KeyError, IndexError, TypeError, ValueError):
         return None
 
@@ -165,7 +200,9 @@ def _parse_yandex_feature(feature: dict) -> GeocodeResult | None:
     if not city:
         # fallback: первая часть text до запятой
         text = (feature.get("metaDataProperty") or {}).get("GeocoderMetaData", {}).get("text") or ""
-        city = text.split(",")[0].strip() if text else ""
+        # "Россия, Москва" → лучше последнее значимое / locality уже выше
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+        city = parts[-1] if parts else ""
     if not city:
         return None
     return GeocodeResult(city=city[:255], latitude=lat, longitude=lon)

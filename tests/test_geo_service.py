@@ -95,3 +95,31 @@ def test_distance_suffix_for():
     assert "км" in distance_suffix_for(a, b, "ru")
     c = SimpleNamespace(latitude=None, longitude=None)
     assert distance_suffix_for(a, c, "ru") == ""
+
+
+def test_parse_yandex_point_pos_dict():
+    from services.geo_service import _parse_point_pos, _parse_yandex_feature
+
+    assert _parse_point_pos({"Point": {"pos": "37.617698 55.755864"}}) == (37.617698, 55.755864)
+    assert _parse_point_pos({"Point": "37.6 55.7"}) == (37.6, 55.7)
+
+    feature = {
+        "Geometry": {"Point": {"pos": "37.617698 55.755864"}},
+        "metaDataProperty": {
+            "GeocoderMetaData": {
+                "text": "Россия, Москва",
+                "kind": "locality",
+                "Address": {
+                    "Components": [
+                        {"kind": "country", "name": "Россия"},
+                        {"kind": "locality", "name": "Москва"},
+                    ]
+                },
+            }
+        },
+    }
+    parsed = _parse_yandex_feature(feature)
+    assert parsed is not None
+    assert parsed.city == "Москва"
+    assert parsed.latitude == 55.755864
+    assert parsed.longitude == 37.617698
