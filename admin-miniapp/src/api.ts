@@ -84,6 +84,9 @@ export interface UserDetail extends AdminUser {
   referral_code: string | null
   referral_track: string | null
   referral_count: number
+  latitude: number | null
+  longitude: number | null
+  geo_source: string | null
   goal: { title: string; target_sparks: number; collected_sparks: number } | null
   updated_at: string | null
   recent_transactions: { id: number; amount: number; tx_type: string; created_at: string | null }[]

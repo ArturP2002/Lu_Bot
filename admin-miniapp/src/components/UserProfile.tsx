@@ -19,6 +19,20 @@ const COUNTRY: Record<string, string> = {
   ukraine: 'Украина',
   other: 'Другое',
 }
+const GEO_SOURCE: Record<string, string> = {
+  location: 'Геолокация',
+  city_center: 'Центр города',
+  backfill: 'Backfill',
+}
+
+function formatCoords(lat: number | null | undefined, lon: number | null | undefined): string {
+  if (lat == null || lon == null) return '—'
+  return `${lat.toFixed(6)}, ${lon.toFixed(6)}`
+}
+
+function mapsUrl(lat: number, lon: number): string {
+  return `https://yandex.ru/maps/?pt=${lon},${lat}&z=14&l=map`
+}
 
 function DetailRow({ label: title, value }: { label: string; value: ReactNode }) {
   return (
@@ -137,6 +151,33 @@ export function UserProfile({ userId, toast, onBack, backLabel = '← Назад
         <DetailRow
           label="Город"
           value={[detail.city, label(COUNTRY, detail.country, detail.country || undefined)].filter(Boolean).join(', ')}
+        />
+        <DetailRow
+          label="Координаты"
+          value={
+            detail.latitude != null && detail.longitude != null ? (
+              <a
+                href={mapsUrl(detail.latitude, detail.longitude)}
+                target="_blank"
+                rel="noreferrer"
+                className="mono"
+              >
+                {formatCoords(detail.latitude, detail.longitude)}
+              </a>
+            ) : (
+              '—'
+            )
+          }
+        />
+        <DetailRow
+          label="Источник гео"
+          value={
+            detail.geo_source
+              ? GEO_SOURCE[detail.geo_source] || detail.geo_source
+              : detail.latitude != null
+                ? '—'
+                : 'нет координат'
+          }
         />
         <DetailRow label="Возраст" value={detail.age} />
         <DetailRow label="Пол" value={GENDER[detail.gender || ''] || detail.gender} />
