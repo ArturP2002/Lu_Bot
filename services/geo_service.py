@@ -22,7 +22,9 @@ GEO_SOURCE_LOCATION = "location"
 GEO_SOURCE_CITY_CENTER = "city_center"
 GEO_SOURCE_BACKFILL = "backfill"
 
-YANDEX_GEOCODER_URL = "https://geocode-maps.yandex.ru/1.x/"
+YANDEX_GEOCODER_URL = "https://geocode-maps.yandex.ru/v1/"
+# Старый endpoint (ключ от «JS API + Геокодер»); пробуем как fallback
+YANDEX_GEOCODER_URL_LEGACY = "https://geocode-maps.yandex.ru/1.x/"
 
 _EARTH_RADIUS_KM = 6371.0
 
@@ -187,6 +189,7 @@ def _pick_best_feature(features: list[dict], *, prefer_locality: bool) -> Geocod
 async def _yandex_request(params: dict, redis: Redis | None, cache_key: str, ttl: int) -> GeocodeResult | None:
     settings = get_settings()
     if not settings.yandex_geocoder_configured:
+        logger.warning("yandex geocoder: API key not configured")
         return None
 
     if redis is not None:
@@ -200,7 +203,7 @@ async def _yandex_request(params: dict, redis: Redis | None, cache_key: str, ttl
         except Exception as e:
             logger.warning("geo cache read failed: %s", e)
 
-    params = {
+    req_params = {
         **params,
         "apikey": settings.yandex_geocoder_api_key.strip(),
         "format": "json",
@@ -210,30 +213,47 @@ async def _yandex_request(params: dict, redis: Redis | None, cache_key: str, ttl
     timeout = httpx.Timeout(settings.geo_http_timeout_sec)
     result: GeocodeResult | None = None
     last_err: Exception | None = None
-    for attempt in range(2):
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.get(YANDEX_GEOCODER_URL, params=params)
-            if resp.status_code in (429, 500, 502, 503, 504) and attempt == 0:
-                await asyncio.sleep(0.4 * (attempt + 1))
-                continue
-            resp.raise_for_status()
-            payload = resp.json()
-            members = (
-                payload.get("response", {})
-                .get("GeoObjectCollection", {})
-                .get("featureMember", [])
-            )
-            features = [m.get("GeoObject") for m in members if m.get("GeoObject")]
-            prefer = "geocode" in params  # forward
-            result = _pick_best_feature(features, prefer_locality=prefer)
+    urls = (YANDEX_GEOCODER_URL, YANDEX_GEOCODER_URL_LEGACY)
+
+    for url in urls:
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.get(url, params=req_params)
+                if resp.status_code in (429, 500, 502, 503, 504) and attempt == 0:
+                    await asyncio.sleep(0.4 * (attempt + 1))
+                    continue
+                if resp.status_code >= 400:
+                    logger.warning(
+                        "yandex geocode HTTP %s url=%s body=%s",
+                        resp.status_code,
+                        url,
+                        (resp.text or "")[:300],
+                    )
+                    last_err = RuntimeError(f"HTTP {resp.status_code}")
+                    break  # следующий url
+                payload = resp.json()
+                members = (
+                    payload.get("response", {})
+                    .get("GeoObjectCollection", {})
+                    .get("featureMember", [])
+                )
+                features = [m.get("GeoObject") for m in members if m.get("GeoObject")]
+                prefer = bool(params.get("geocode")) and "kind" not in params
+                result = _pick_best_feature(features, prefer_locality=prefer)
+                if result:
+                    last_err = None
+                    break
+                last_err = RuntimeError("empty geocode response")
+                break
+            except Exception as e:
+                last_err = e
+                if attempt == 0:
+                    await asyncio.sleep(0.4)
+                    continue
+                logger.warning("yandex geocode failed url=%s: %s", url, e)
+        if result:
             break
-        except Exception as e:
-            last_err = e
-            if attempt == 0:
-                await asyncio.sleep(0.4)
-                continue
-            logger.warning("yandex geocode failed: %s", e)
 
     if last_err and result is None:
         logger.info("geocode miss/fail key=%s err=%s", cache_key, last_err)
@@ -247,8 +267,8 @@ async def _yandex_request(params: dict, redis: Redis | None, cache_key: str, ttl
                     ex=ttl,
                 )
             else:
-                # короткий negative cache, чтобы не долбить API
-                await redis.set(cache_key, json.dumps({"miss": True}), ex=min(ttl, 3600))
+                # короткий negative cache (не на весь TTL — иначе после фикса ключа «Москва» мёртвая)
+                await redis.set(cache_key, json.dumps({"miss": True}), ex=300)
         except Exception as e:
             logger.warning("geo cache write failed: %s", e)
 
