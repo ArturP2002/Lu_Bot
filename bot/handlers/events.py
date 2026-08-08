@@ -668,7 +668,7 @@ async def ev_cat_browse(callback: CallbackQuery, user: User, session: AsyncSessi
   lang = lang_of(user)
   cat_id = int(callback.data.split(":")[-1])
   cat = await session.get(EventCategory, cat_id)
-  event = await get_next_event(session, user, category_id=cat_id)
+  event = await get_next_event(session, user, category_id=cat_id, redis=redis)
   if not event:
     empty_key = "EVENT_EMPTY_CAT"
     if cat:
@@ -721,7 +721,7 @@ async def ev_next(callback: CallbackQuery, user: User, session: AsyncSession, re
     await callback.answer()
     return
 
-  event = await get_next_event(session, user, category_id=cat_id, after_id=after_id)
+  event = await get_next_event(session, user, category_id=cat_id, after_id=after_id, redis=redis)
   if not event:
     await safe_edit_text(callback.message, tx(user, "EVENT_NO_MORE"), reply_markup=events_menu_kb(lang), redis=redis)
     await callback.answer()

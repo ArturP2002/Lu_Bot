@@ -31,19 +31,26 @@ async def record_profile_skip(session: AsyncSession, from_user_id: int, to_user_
     return True
 
 
-async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: list[int] | None = None) -> User | None:
+async def get_next_profile(
+    session: AsyncSession,
+    viewer: User,
+    exclude_ids: list[int] | None = None,
+    *,
+    redis=None,
+) -> User | None:
     """Получить следующую анкету для просмотра.
 
     Лайкнутые и пропущенные анкеты в ленту больше не попадают.
     При geo_search_enabled + coords у зрителя:
       сортировка — сначала свой город/близко, затем по возрастанию расстояния
-      (другие города тоже; без координат — в конце). Жёсткий радиус только
-      если включён feed_filter_city.
+      (другие города тоже). Анкетам без coords подставляется центр города из city.
     """
     from services.app_settings_service import get_setting_bool
     from services.geo_service import (
+        ensure_user_geo,
         geo_bbox_clauses,
         has_coords,
+        hydrate_missing_user_geo,
         same_city_rank_expr,
         sql_distance_km_nullable,
         sql_haversine_km,
@@ -51,6 +58,15 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
 
     exclude_ids = exclude_ids or []
     now = datetime.now(timezone.utc)
+
+    geo_enabled = await get_setting_bool(session, "geo_search_enabled")
+    if geo_enabled:
+        # Подтянуть центр города для зрителя и кандидатов без координат
+        await ensure_user_geo(viewer, redis)
+        try:
+            await hydrate_missing_user_geo(session, redis, limit_cities=30)
+        except Exception:
+            pass
 
     liked = exists(
         select(Like.id).where(
@@ -92,12 +108,10 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
         else:
             conditions.append(or_(User.visible_to.is_(None), User.visible_to == "all"))
 
-    geo_enabled = await get_setting_bool(session, "geo_search_enabled")
     use_geo = geo_enabled and has_coords(viewer)
     filter_city = await get_setting_bool(session, "feed_filter_city")
 
     if use_geo and filter_city:
-        # Опциональный узкий режим: радиус ИЛИ тот же город текстом (без coords тоже ок)
         radius = settings.geo_nearby_radius_km
         in_radius = and_(
             *geo_bbox_clauses(
@@ -114,8 +128,6 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
             conditions.append(in_radius)
     elif not use_geo and filter_city and viewer.city:
         conditions.append(func.lower(User.city) == viewer.city.strip().lower())
-
-    # use_geo без feed_filter_city: не режем выдачу — только сортируем по distance
 
     premium_rank = case((User.premium_until > now, 1), else_=0)
     order = []
@@ -149,7 +161,10 @@ async def get_next_profile(session: AsyncSession, viewer: User, exclude_ids: lis
 
     query = select(User).options(selectinload(User.goal)).where(and_(*conditions))
     result = await session.execute(query.order_by(*order).limit(1))
-    return result.scalar_one_or_none()
+    target = result.scalar_one_or_none()
+    if target and geo_enabled:
+        await ensure_user_geo(target, redis)
+    return target
 
 
 async def recalculate_rating(session: AsyncSession, user_id: int) -> None:

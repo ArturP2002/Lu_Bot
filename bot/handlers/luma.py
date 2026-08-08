@@ -104,6 +104,10 @@ async def show_luma_person_card(
   edit: bool = False,
   finalize_previous: bool = False,
 ) -> None:
+  from services.geo_service import ensure_user_geo
+
+  await ensure_user_geo(viewer, redis)
+  await ensure_user_geo(profile, redis)
   text = format_other_profile(profile, lang_of(viewer), viewer=viewer)
   kb = rate_card_kb(profile.id, lang_of(viewer))
   await edit_or_send(
@@ -128,7 +132,10 @@ async def show_luma_event_card(
   edit: bool = False,
 ) -> None:
   from bot.handlers.events import format_event_card
+  from services.geo_service import ensure_event_geo, ensure_user_geo
 
+  await ensure_user_geo(viewer, redis)
+  await ensure_event_geo(event, redis)
   lang = lang_of(viewer)
   org = await get_user_by_id(session, event.organizer_id)
   text = format_event_card(event, org, lang=lang, viewer=viewer)

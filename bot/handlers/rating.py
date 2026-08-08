@@ -107,7 +107,7 @@ async def show_next_profile(
     ):
         return
 
-    target = await get_next_profile(session, user, exclude or [])
+    target = await get_next_profile(session, user, exclude or [], redis=redis)
     if not target:
         await edit_or_send(message, t(user, "RATE_EMPTY"), redis=redis, edit=edit, track=False)
         return

@@ -146,6 +146,7 @@ async def find_events(
     category_id: int | None = None,
     exclude_id: int | None = None,
     limit: int = 20,
+    redis=None,
 ) -> list[Event]:
     """Лента тусовок с фильтрами категорий и сортировкой pin/boost.
 
@@ -156,8 +157,11 @@ async def find_events(
     """
     from services.app_settings_service import get_setting_bool
     from services.geo_service import (
+        ensure_event_geo,
+        ensure_user_geo,
         geo_bbox_clauses,
         has_coords,
+        hydrate_missing_event_geo,
         sql_distance_order,
         sql_haversine_km,
     )
@@ -184,22 +188,35 @@ async def find_events(
             if is_geo:
                 geo_mode = True
                 geo_enabled = await get_setting_bool(session, "geo_search_enabled")
+                if geo_enabled:
+                    await ensure_user_geo(viewer, redis)
+                    try:
+                        await hydrate_missing_event_geo(session, redis, limit_cities=30)
+                    except Exception:
+                        pass
                 if geo_enabled and has_coords(viewer):
                     geo_rank_by_distance = True
                     radius = settings.geo_nearby_radius_km
-                    clauses.extend(
-                        geo_bbox_clauses(
+                    # С coords в радиусе ИЛИ тот же город текстом (пока без coords после fail геокодера)
+                    in_radius = and_(
+                        *geo_bbox_clauses(
                             Event.latitude,
                             Event.longitude,
                             viewer.latitude,
                             viewer.longitude,
                             radius,
+                        ),
+                        sql_haversine_km(
+                            Event.latitude, Event.longitude, viewer.latitude, viewer.longitude
                         )
+                        <= radius,
                     )
-                    dist = sql_haversine_km(
-                        Event.latitude, Event.longitude, viewer.latitude, viewer.longitude
-                    )
-                    clauses.append(dist <= radius)
+                    city = (viewer.city or "").strip()
+                    if city:
+                        same_city = func.lower(Event.city) == city.lower()
+                        clauses.append(or_(in_radius, same_city))
+                    else:
+                        clauses.append(in_radius)
                 else:
                     clauses.extend(_geo_city_fallback_clauses(viewer))
             else:
@@ -221,7 +238,11 @@ async def find_events(
 
     stmt = select(Event).where(and_(*clauses)).order_by(*order).limit(limit)
     result = await session.execute(stmt)
-    return list(result.scalars().all())
+    events = list(result.scalars().all())
+    if geo_rank_by_distance:
+        for ev in events:
+            await ensure_event_geo(ev, redis)
+    return events
 
 
 def _today_date_variants(now: datetime | None = None) -> list[str]:
@@ -298,8 +319,11 @@ async def get_next_event(
     *,
     category_id: int | None = None,
     after_id: int | None = None,
+    redis=None,
 ) -> Event | None:
-    events = await find_events(session, viewer, category_id=category_id, exclude_id=after_id, limit=5)
+    events = await find_events(
+        session, viewer, category_id=category_id, exclude_id=after_id, limit=5, redis=redis
+    )
     return events[0] if events else None
 
 

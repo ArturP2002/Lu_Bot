@@ -345,3 +345,143 @@ def apply_geo_to_event(event, *, city: str, lat: float | None, lon: float | None
     event.latitude = lat
     event.longitude = lon
     event.geo_source = source
+
+
+async def ensure_user_geo(user, redis: Redis | None = None, *, persist: bool = True) -> bool:
+    """Если нет coords, но есть city — проставить центр города. True если coords есть после вызова."""
+    if has_coords(user):
+        return True
+    city = (getattr(user, "city", None) or "").strip()
+    if not city:
+        return False
+    result = await geocode_city(city, redis)
+    if not result:
+        return False
+    if persist:
+        # Не затираем кастомное написание города, только координаты центра
+        user.latitude = result.latitude
+        user.longitude = result.longitude
+        if not getattr(user, "geo_source", None):
+            user.geo_source = GEO_SOURCE_CITY_CENTER
+    else:
+        user.latitude = result.latitude
+        user.longitude = result.longitude
+    return True
+
+
+async def ensure_event_geo(event, redis: Redis | None = None, *, persist: bool = True) -> bool:
+    """Если у тусовки нет coords — центр по Event.city."""
+    if has_coords(event):
+        return True
+    city = (getattr(event, "city", None) or "").strip()
+    if not city:
+        return False
+    result = await geocode_city(city, redis)
+    if not result:
+        return False
+    event.latitude = result.latitude
+    event.longitude = result.longitude
+    if persist and not getattr(event, "geo_source", None):
+        event.geo_source = GEO_SOURCE_CITY_CENTER
+    elif persist:
+        event.geo_source = event.geo_source or GEO_SOURCE_CITY_CENTER
+    return True
+
+
+async def hydrate_missing_user_geo(
+    session,
+    redis: Redis | None = None,
+    *,
+    limit_cities: int = 40,
+) -> int:
+    """Проставить coords пользователям с city без lat/lon (уникальные города). Возвращает число городов."""
+    from sqlalchemy import select, update
+
+    from models import User
+
+    result = await session.execute(
+        select(func.lower(User.city))
+        .where(
+            User.city.is_not(None),
+            User.city != "",
+            User.latitude.is_(None),
+            User.profile_completed.is_(True),
+        )
+        .distinct()
+        .limit(limit_cities)
+    )
+    cities_l = [r[0] for r in result.all() if r[0]]
+    filled = 0
+    for city_l in cities_l:
+        row = await session.execute(
+            select(User.city).where(func.lower(User.city) == city_l).limit(1)
+        )
+        name = row.scalar_one_or_none()
+        if not name:
+            continue
+        geo = await geocode_city(name, redis)
+        if not geo:
+            continue
+        await session.execute(
+            update(User)
+            .where(func.lower(User.city) == city_l, User.latitude.is_(None))
+            .values(
+                latitude=geo.latitude,
+                longitude=geo.longitude,
+                geo_source=GEO_SOURCE_CITY_CENTER,
+            )
+        )
+        filled += 1
+        await asyncio.sleep(0.05)
+    if filled:
+        await session.flush()
+    return filled
+
+
+async def hydrate_missing_event_geo(
+    session,
+    redis: Redis | None = None,
+    *,
+    limit_cities: int = 40,
+) -> int:
+    """Проставить coords тусовкам с city без lat/lon."""
+    from sqlalchemy import select, update
+
+    from models import Event
+
+    result = await session.execute(
+        select(func.lower(Event.city))
+        .where(
+            Event.city.is_not(None),
+            Event.city != "",
+            Event.latitude.is_(None),
+        )
+        .distinct()
+        .limit(limit_cities)
+    )
+    cities_l = [r[0] for r in result.all() if r[0]]
+    filled = 0
+    for city_l in cities_l:
+        row = await session.execute(
+            select(Event.city).where(func.lower(Event.city) == city_l).limit(1)
+        )
+        name = row.scalar_one_or_none()
+        if not name:
+            continue
+        geo = await geocode_city(name, redis)
+        if not geo:
+            continue
+        await session.execute(
+            update(Event)
+            .where(func.lower(Event.city) == city_l, Event.latitude.is_(None))
+            .values(
+                latitude=geo.latitude,
+                longitude=geo.longitude,
+                geo_source=GEO_SOURCE_CITY_CENTER,
+            )
+        )
+        filled += 1
+        await asyncio.sleep(0.05)
+    if filled:
+        await session.flush()
+    return filled
