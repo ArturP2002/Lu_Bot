@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, case, exists, func, or_, select
+from sqlalchemy import and_, case, delete, exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,6 +29,29 @@ async def record_profile_skip(session: AsyncSession, from_user_id: int, to_user_
     session.add(ProfileSkip(from_user_id=from_user_id, to_user_id=to_user_id))
     await session.flush()
     return True
+
+
+def mark_feed_exhausted(user: User) -> bool:
+    """Пометить ленту исчерпанной. True — флаг только что выставлен."""
+    if user.feed_exhausted:
+        return False
+    user.feed_exhausted = True
+    return True
+
+
+async def reset_exhausted_feed_skips(session: AsyncSession) -> int:
+    """Очистить скипы у пользователей с feed_exhausted и снять флаг. Возвращает число пользователей."""
+    result = await session.execute(select(User.id).where(User.feed_exhausted.is_(True)))
+    user_ids = list(result.scalars().all())
+    if not user_ids:
+        return 0
+
+    await session.execute(delete(ProfileSkip).where(ProfileSkip.from_user_id.in_(user_ids)))
+    await session.execute(
+        update(User).where(User.id.in_(user_ids)).values(feed_exhausted=False)
+    )
+    await session.flush()
+    return len(user_ids)
 
 
 async def get_next_profile(

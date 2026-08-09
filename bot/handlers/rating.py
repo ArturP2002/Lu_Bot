@@ -27,7 +27,7 @@ from bot.utils.messaging import (
     strip_inline_keyboard,
 )
 from models import Complaint, Like, Rating, User
-from services.feed_service import get_next_profile, recalculate_rating, record_profile_skip
+from services.feed_service import get_next_profile, mark_feed_exhausted, recalculate_rating, record_profile_skip
 from services.match_service import check_mutual_like
 from services.sparks_service import support_goal
 from services.user_service import get_user_by_id
@@ -109,6 +109,7 @@ async def show_next_profile(
 
     target = await get_next_profile(session, user, exclude or [], redis=redis)
     if not target:
+        mark_feed_exhausted(user)
         await edit_or_send(message, t(user, "RATE_EMPTY"), redis=redis, edit=edit, track=False)
         return
     from services.event_service import sync_events_organized

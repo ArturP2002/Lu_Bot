@@ -57,6 +57,12 @@ async def init_db() -> None:
         await conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_profile_skips_to_user_id ON profile_skips (to_user_id)")
         )
+        await conn.execute(
+            text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS feed_exhausted "
+                "BOOLEAN NOT NULL DEFAULT false"
+            )
+        )
     print("Таблицы созданы.")
 
 

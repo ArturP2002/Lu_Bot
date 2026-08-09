@@ -128,6 +128,18 @@ async def regeocode_entity(ctx, entity_type: str, entity_id: int) -> bool:
     return await _run(ctx, entity_type, entity_id)
 
 
+async def reset_exhausted_feeds(ctx) -> int:
+    """Ночной сброс скипов для пользователей, исчерпавших ленту (00:05 МСК = 21:05 UTC)."""
+    factory = get_session_factory()
+    async with factory() as session:
+        from services.feed_service import reset_exhausted_feed_skips
+
+        count = await reset_exhausted_feed_skips(session)
+        await session.commit()
+    logger.info("reset_exhausted_feeds: cleared skips for %s users", count)
+    return count
+
+
 class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     functions = [
@@ -135,7 +147,10 @@ class WorkerSettings:
         renew_premium_subscriptions,
         backfill_user_event_geo,
         regeocode_entity,
+        reset_exhausted_feeds,
     ]
     cron_jobs = [
         cron(renew_premium_subscriptions, minute={15}, unique=True),
+        # 00:05 Europe/Moscow == 21:05 UTC (MSK = UTC+3, без DST)
+        cron(reset_exhausted_feeds, hour={21}, minute={5}, unique=True),
     ]
