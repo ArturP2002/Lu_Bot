@@ -137,24 +137,19 @@ async def reg_language(message: Message, state: FSMContext, user: User, session:
     from services.app_settings_service import get_setting_value
 
     rules = await get_setting_value(session, "rules_link_1")
-    sent = await replace_ui(
+    agree_kb = rules_agree_kb(lang_of(user))
+
+    # Снять reply-клавиатуру выбора языка (служебное сообщение сразу удаляем)
+    rm = await message.answer("\u200b", reply_markup=ReplyKeyboardRemove())
+    await safe_delete(rm)
+
+    await replace_ui(
         message,
         t(user, "REG_RULES", rules=rules),
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=agree_kb,
         redis=redis,
         parse_mode="HTML",
     )
-    agree_kb = rules_agree_kb(lang_of(user))
-    try:
-        await sent.edit_reply_markup(reply_markup=agree_kb)
-    except Exception:
-        await send_ui(
-            message,
-            t(user, "REG_RULES", rules=rules),
-            reply_markup=agree_kb,
-            redis=redis,
-            parse_mode="HTML",
-        )
 
 
 @router.callback_query(Registration.rules, F.data == "reg:agree")
