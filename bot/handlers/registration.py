@@ -138,14 +138,25 @@ async def reg_language(message: Message, state: FSMContext, user: User, session:
 
     rules = await get_setting_value(session, "rules_link_1")
     agree_kb = rules_agree_kb(lang_of(user))
+    text = t(user, "REG_RULES", rules=rules)
 
-    # Снять reply-клавиатуру выбора языка (служебное сообщение сразу удаляем)
-    rm = await message.answer("\u200b", reply_markup=ReplyKeyboardRemove())
-    await safe_delete(rm)
+    await delete_previous_ui(message.bot, redis, message.chat.id)
 
-    await replace_ui(
+    # Снять reply-клавиатуру выбора языка (parse_mode=None — иначе Telegram отклонит «пустой» текст)
+    try:
+        rm = await message.bot.send_message(
+            message.chat.id,
+            "·",
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode=None,
+        )
+        await safe_delete(rm)
+    except Exception:
+        pass
+
+    await send_ui(
         message,
-        t(user, "REG_RULES", rules=rules),
+        text,
         reply_markup=agree_kb,
         redis=redis,
         parse_mode="HTML",
