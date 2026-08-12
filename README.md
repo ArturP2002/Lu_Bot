@@ -19,7 +19,7 @@ cp .env.example .env
 
 docker compose up -d postgres redis
 pip install -r requirements.txt
-alembic upgrade head
+./scripts/bootstrap_db.sh
 python main.py
 ```
 
