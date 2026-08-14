@@ -218,7 +218,7 @@ async def prof_photo_start(callback: CallbackQuery, state: FSMContext, user: Use
   )
 
 
-@router.message(ProfileEdit.photo, F.photo | F.video | F.video_note)
+@router.message(ProfileEdit.photo, F.photo | F.video | F.video_note | F.animation)
 async def prof_photo_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   data = await state.get_data()
   prompt_id = data.get("prompt_message_id")

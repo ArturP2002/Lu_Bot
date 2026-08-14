@@ -18,7 +18,7 @@ from services.user_service import is_premium
 logger = logging.getLogger(__name__)
 
 MAX_PROFILE_MEDIA = 10
-ALBUM_WAIT_SEC = 1.0
+ALBUM_WAIT_SEC = 1.25
 MediaKind = Literal["photo", "video"]
 
 
@@ -88,17 +88,20 @@ def merge_profile_media(
 
 
 def media_from_message(message: Message) -> ProfileMedia | None:
-    if message.photo:
-        return ProfileMedia(kind="photo", file_id=message.photo[-1].file_id, message_id=message.message_id)
+    # Видео проверяем раньше фото: у ролика может быть превью в photo.
     if message.video:
         return ProfileMedia(kind="video", file_id=message.video.file_id, message_id=message.message_id)
     if message.video_note:
         return ProfileMedia(kind="video", file_id=message.video_note.file_id, message_id=message.message_id)
+    if message.photo:
+        return ProfileMedia(kind="photo", file_id=message.photo[-1].file_id, message_id=message.message_id)
+    if message.animation:
+        return ProfileMedia(kind="video", file_id=message.animation.file_id, message_id=message.message_id)
     return None
 
 
 async def collect_album(message: Message, redis: Redis) -> list[ProfileMedia] | None:
-    """Собрать альбом Telegram. None — это не лидер, обработчик должен выйти."""
+    """Собрать альбом Telegram. None — ещё не последнее сообщение группы."""
     item = media_from_message(message)
     if item is None:
         return None
@@ -107,23 +110,39 @@ async def collect_album(message: Message, redis: Redis) -> list[ProfileMedia] | 
         return [item]
 
     key = f"album:{message.chat.id}:{group_id}"
-    lock_key = f"{key}:leader"
+    gen_key = f"{key}:gen"
+    done_key = f"{key}:done"
     payload = json.dumps(
-        {"type": item.kind, "file_id": item.file_id, "mid": item.message_id},
+        {
+            "type": item.kind,
+            "file_id": item.file_id,
+            "mid": item.message_id,
+            "idx": getattr(message, "message_id", 0) or 0,
+        },
         ensure_ascii=False,
     )
     await redis.rpush(key, payload)
-    await redis.expire(key, 30)
-    is_leader = await redis.set(lock_key, "1", nx=True, ex=30)
-    if not is_leader:
+    await redis.expire(key, 60)
+    gen = int(await redis.incr(gen_key))
+    await redis.expire(gen_key, 60)
+
+    # Ждём хвост альбома. Каждое новое вложение сдвигает «последнего».
+    await asyncio.sleep(ALBUM_WAIT_SEC)
+    latest_raw = await redis.get(gen_key)
+    latest = int(latest_raw) if latest_raw is not None else 0
+    if latest != gen:
         return None
 
-    await asyncio.sleep(ALBUM_WAIT_SEC)
+    claimed = await redis.set(done_key, "1", nx=True, ex=60)
+    if not claimed:
+        return None
+
     raw = await redis.lrange(key, 0, -1)
-    await redis.delete(key, lock_key)
+    await redis.delete(key, gen_key, done_key)
 
     items: list[ProfileMedia] = []
     seen: set[str] = set()
+    parsed: list[tuple[int, ProfileMedia]] = []
     for row in raw:
         text = row.decode() if isinstance(row, (bytes, bytearray)) else str(row)
         try:
@@ -136,13 +155,18 @@ async def collect_album(message: Message, redis: Redis) -> list[ProfileMedia] | 
             continue
         seen.add(fid)
         mid = data.get("mid")
-        items.append(
-            ProfileMedia(
-                kind=kind,
-                file_id=str(fid),
-                message_id=int(mid) if mid is not None else None,
+        parsed.append(
+            (
+                int(data.get("idx") or mid or 0),
+                ProfileMedia(
+                    kind=kind,
+                    file_id=str(fid),
+                    message_id=int(mid) if mid is not None else None,
+                ),
             )
         )
+    parsed.sort(key=lambda pair: pair[0])
+    items = [item for _, item in parsed]
     return items[:MAX_PROFILE_MEDIA]
 
 

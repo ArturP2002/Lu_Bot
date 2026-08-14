@@ -183,7 +183,7 @@ async def reg_name(message: Message, state: FSMContext, user: User, redis: Redis
     await replace_ui(message, t(user, "REG_ASK_PHOTO", name=user.display_name), redis=redis)
 
 
-@router.message(Registration.photo, F.photo | F.video | F.video_note)
+@router.message(Registration.photo, F.photo | F.video | F.video_note | F.animation)
 async def reg_photo(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
     accepted, err_key, warning = await consume_profile_media_message(message, user, redis)
     if accepted is None:
