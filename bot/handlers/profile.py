@@ -44,6 +44,7 @@ from bot.texts.ui_labels import service_err, tx
 from bot.utils.messaging import (
     cleanup_user_and_prompt,
     edit_or_send,
+    edit_ui,
     ensure_reply_menu,
     safe_delete,
     safe_edit_text,
@@ -229,19 +230,20 @@ async def prof_photo_save(
 ) -> None:
   data = await state.get_data()
   prompt_id = data.get("prompt_message_id")
+  kb = media_edit_kb(lang_of(user))
   accepted, err_key, warning = await consume_profile_media_message(message, user, redis, album=album)
   if not accepted:
     if err_key == "MODERATION_BLOCKED":
-      await message.answer(t(user, "MODERATION_BLOCKED", reason=warning or "нарушение"))
-    elif err_key:
-      await message.answer(t(user, err_key))
+      err = t(user, "MODERATION_BLOCKED", reason=warning or "нарушение")
+    else:
+      err = t(user, err_key) if err_key else ""
+    body = f"{err}\n\n{_photo_prompt_text(user)}" if err else _photo_prompt_text(user)
+    prompt = await edit_ui(message, body, message_id=prompt_id, reply_markup=kb, redis=redis)
+    if prompt is not None:
+      await state.update_data(prompt_message_id=prompt.message_id)
     return
 
   merged, dropped = await persist_profile_media(user, accepted, redis, session)
-  if warning:
-    await message.answer(t(user, warning))
-  if dropped:
-    await message.answer(t(user, "MEDIA_LIMIT", max=MAX_PROFILE_MEDIA))
 
   if len(merged) >= MAX_PROFILE_MEDIA:
     await state.clear()
@@ -250,16 +252,22 @@ async def prof_photo_save(
     await show_profile(message, user, redis=redis)
     return
 
-  await state.set_state(ProfileEdit.photo)
-  prompt = await send_ui(
+  parts = [t(user, "MEDIA_ADDED", n=len(merged), max=MAX_PROFILE_MEDIA)]
+  if warning:
+    parts.append(t(user, warning))
+  if dropped:
+    parts.append(t(user, "MEDIA_LIMIT", max=MAX_PROFILE_MEDIA))
+  parts.append(_photo_prompt_text(user))
+  prompt = await edit_ui(
     message,
-    f"{t(user, 'MEDIA_ADDED', n=len(merged), max=MAX_PROFILE_MEDIA)}\n\n{_photo_prompt_text(user)}",
-    reply_markup=media_edit_kb(lang_of(user)),
+    "\n\n".join(parts),
+    message_id=prompt_id,
+    reply_markup=kb,
     redis=redis,
   )
-  if prompt_id:
-    await safe_delete(bot=message.bot, chat_id=message.chat.id, message_id=prompt_id)
-  await state.update_data(prompt_message_id=prompt.message_id if prompt else None)
+  await state.set_state(ProfileEdit.photo)
+  if prompt is not None:
+    await state.update_data(prompt_message_id=prompt.message_id)
 
 
 @router.callback_query(ProfileEdit.photo, F.data == "prof:media:done")

@@ -221,6 +221,55 @@ async def clear_reply_menu_tracking(redis: Redis | None, chat_id: int) -> None:
   await redis.delete(_reply_menu_key(chat_id))
 
 
+async def edit_ui(
+  message: Message,
+  text: str,
+  *,
+  message_id: int | None = None,
+  reply_markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | None = None,
+  redis: Redis | None = None,
+  parse_mode: str | None = None,
+) -> Message | None:
+  """Отредактировать UI-сообщение по id. Если нельзя — отправить новое.
+
+  Возвращает Message, если появился новый пузырь (нужно обновить prompt_id).
+  None — отредактировали существующий, id не менялся.
+  """
+  target_id = message_id or await get_ui_message_id(redis, message.chat.id)
+  kwargs: dict[str, Any] = {"reply_markup": reply_markup}
+  if parse_mode is not None:
+    kwargs["parse_mode"] = parse_mode
+
+  if target_id:
+    try:
+      edited = await message.bot.edit_message_text(
+        text,
+        chat_id=message.chat.id,
+        message_id=target_id,
+        **kwargs,
+      )
+      if isinstance(edited, Message):
+        await _track(redis, edited)
+        return None
+      await remember_ui_message(redis, message.chat.id, target_id)
+      return None
+    except TelegramBadRequest as e:
+      if "message is not modified" in str(e).lower():
+        await remember_ui_message(redis, message.chat.id, target_id)
+        return None
+    except Exception:
+      pass
+    await safe_delete(bot=message.bot, chat_id=message.chat.id, message_id=target_id)
+
+  return await send_ui(
+    message,
+    text,
+    reply_markup=reply_markup,
+    redis=redis,
+    parse_mode=parse_mode,
+  )
+
+
 async def send_ui(
   message: Message,
   text: str,
