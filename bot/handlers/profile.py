@@ -16,6 +16,7 @@ from bot.keyboards.keyboards import (
     disable_goodbye_kb,
     gender_kb,
     language_inline_kb,
+    media_edit_kb,
     payment_link_kb,
     payment_method_kb,
     premium_kb,
@@ -55,7 +56,13 @@ from models.entities import VerificationStatus
 from services.blogger_service import apply_blogger, blogger_link, get_or_create_blogger
 from services.geo_service import apply_geo_to_user
 from services.luma_ai_service import moderate_text
-from services.profile_media import consume_profile_media_message, get_profile_media, set_profile_media
+from services.profile_media import (
+    MAX_PROFILE_MEDIA,
+    consume_profile_media_message,
+    get_profile_media,
+    merge_profile_media,
+    set_profile_media,
+)
 from services.referral_service import count_completed_referrals, get_available_rewards
 from services.sparks_service import withdraw_sparks
 from services.user_service import free_rating_reset_available, is_premium, sync_telegram_username
@@ -193,9 +200,22 @@ async def prof_lang_save(callback: CallbackQuery, user: User, redis: Redis) -> N
   await callback.answer()
 
 
+def _photo_prompt_text(user: User) -> str:
+  n = len(get_profile_media(user))
+  base = tx(user, "PHOTO_ASK_PREMIUM" if is_premium(user) else "PHOTO_ASK")
+  return f"{base}\n\n{t(user, 'MEDIA_COUNT', n=n, max=MAX_PROFILE_MEDIA)}"
+
+
 @router.callback_query(F.data == "prof:photo")
 async def prof_photo_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
-  await _start_prompt(callback, state, ProfileEdit.photo, tx(user, "PHOTO_ASK"), redis)
+  await _start_prompt(
+    callback,
+    state,
+    ProfileEdit.photo,
+    _photo_prompt_text(user),
+    redis,
+    reply_markup=media_edit_kb(lang_of(user)),
+  )
 
 
 @router.message(ProfileEdit.photo, F.photo | F.video | F.video_note)
@@ -211,13 +231,54 @@ async def prof_photo_save(message: Message, state: FSMContext, user: User, redis
     else:
       await message.answer(t(user, err_key))
     return
-  set_profile_media(user, accepted)
-  await state.clear()
-  if prompt_id:
-    await safe_delete(bot=message.bot, chat_id=message.chat.id, message_id=prompt_id)
+
+  merged, dropped = merge_profile_media(get_profile_media(user), accepted)
+  set_profile_media(user, merged)
   if warning:
     await message.answer(t(user, warning))
-  await show_profile(message, user, redis=redis)
+  if dropped:
+    await message.answer(t(user, "MEDIA_LIMIT", max=MAX_PROFILE_MEDIA))
+
+  if len(merged) >= MAX_PROFILE_MEDIA:
+    await state.clear()
+    if prompt_id:
+      await safe_delete(bot=message.bot, chat_id=message.chat.id, message_id=prompt_id)
+    await show_profile(message, user, redis=redis)
+    return
+
+  await state.set_state(ProfileEdit.photo)
+  prompt = await send_ui(
+    message,
+    f"{t(user, 'MEDIA_ADDED', n=len(merged), max=MAX_PROFILE_MEDIA)}\n\n{_photo_prompt_text(user)}",
+    reply_markup=media_edit_kb(lang_of(user)),
+    redis=redis,
+  )
+  if prompt_id:
+    await safe_delete(bot=message.bot, chat_id=message.chat.id, message_id=prompt_id)
+  await state.update_data(prompt_message_id=prompt.message_id if prompt else None)
+
+
+@router.callback_query(ProfileEdit.photo, F.data == "prof:media:done")
+async def prof_media_done(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  if not get_profile_media(user):
+    await callback.answer(t(user, "MEDIA_NEED_FILE"), show_alert=True)
+    return
+  await state.clear()
+  await show_profile(callback.message, user, redis=redis, edit=True)
+  await callback.answer()
+
+
+@router.callback_query(ProfileEdit.photo, F.data == "prof:media:clear")
+async def prof_media_clear(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  set_profile_media(user, [])
+  prompt = await safe_edit_text(
+    callback.message,
+    _photo_prompt_text(user),
+    reply_markup=media_edit_kb(lang_of(user)),
+    redis=redis,
+  )
+  await state.update_data(prompt_message_id=prompt.message_id if prompt else callback.message.message_id)
+  await callback.answer()
 
 
 @router.callback_query(F.data == "prof:city")

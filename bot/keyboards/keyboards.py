@@ -160,6 +160,19 @@ def skip_optional_kb(lang: str = "ru", callback_data: str = "skip") -> InlineKey
     )
 
 
+def media_edit_kb(lang: str = "ru") -> InlineKeyboardMarkup:
+    from bot.texts.i18n import t
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(lang, "BTN_MEDIA_DONE"), callback_data="prof:media:done"),
+                InlineKeyboardButton(text=t(lang, "BTN_MEDIA_CLEAR"), callback_data="prof:media:clear"),
+            ]
+        ]
+    )
+
+
 def next_step_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     from bot.texts.i18n import t
 

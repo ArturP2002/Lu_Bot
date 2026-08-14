@@ -64,6 +64,29 @@ def set_profile_media(user: User, items: list[ProfileMedia]) -> None:
     user.photo_file_id = first_photo.file_id if first_photo else None
 
 
+def merge_profile_media(
+    existing: list[ProfileMedia],
+    incoming: list[ProfileMedia],
+    *,
+    limit: int = MAX_PROFILE_MEDIA,
+) -> tuple[list[ProfileMedia], int]:
+    """Добавить новые файлы к уже сохранённым. Возвращает (итог, сколько не влезло)."""
+    seen = {item.file_id for item in existing}
+    merged = [
+        ProfileMedia(kind=item.kind, file_id=item.file_id) for item in existing[:limit]
+    ]
+    dropped = 0
+    for item in incoming:
+        if item.file_id in seen:
+            continue
+        if len(merged) >= limit:
+            dropped += 1
+            continue
+        merged.append(ProfileMedia(kind=item.kind, file_id=item.file_id))
+        seen.add(item.file_id)
+    return merged, dropped
+
+
 def media_from_message(message: Message) -> ProfileMedia | None:
     if message.photo:
         return ProfileMedia(kind="photo", file_id=message.photo[-1].file_id, message_id=message.message_id)
