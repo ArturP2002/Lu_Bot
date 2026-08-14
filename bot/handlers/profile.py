@@ -43,6 +43,7 @@ from bot.texts.i18n import GENDER_BUTTONS, SEEKING_BUTTONS, VISIBLE_BUTTONS, lan
 from bot.texts.ui_labels import service_err, tx
 from bot.utils.messaging import (
     cleanup_user_and_prompt,
+    dismiss_ui_card,
     edit_or_send,
     edit_ui,
     ensure_reply_menu,
@@ -97,6 +98,25 @@ async def show_profile(
   )
 
 
+async def _replace_profile_screen(
+  callback: CallbackQuery,
+  text: str,
+  redis: Redis,
+  *,
+  reply_markup=None,
+  parse_mode: str | None = None,
+) -> Message:
+  """Снять медиагруппу анкеты и показать новый экран — без засорения чата."""
+  await dismiss_ui_card(callback.message, redis)
+  return await send_ui(
+    callback.message,
+    text,
+    reply_markup=reply_markup,
+    redis=redis,
+    parse_mode=parse_mode,
+  )
+
+
 async def _start_prompt(
   callback: CallbackQuery,
   state: FSMContext,
@@ -108,7 +128,7 @@ async def _start_prompt(
   extra: dict | None = None,
 ) -> None:
   await state.set_state(fsm_state)
-  prompt = await safe_edit_text(callback.message, text, reply_markup=reply_markup, redis=redis)
+  prompt = await _replace_profile_screen(callback, text, redis, reply_markup=reply_markup)
   data = {"prompt_message_id": prompt.message_id if prompt else callback.message.message_id}
   if extra:
     data.update(extra)
@@ -137,9 +157,8 @@ async def prof_age_save(message: Message, state: FSMContext, user: User, redis: 
 @router.callback_query(F.data == "prof:gender")
 async def prof_gender_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
   await state.set_state(ProfileEdit.gender)
-  await safe_delete(callback.message)
-  prompt = await send_ui(
-    callback.message, t(user, "REG_ASK_GENDER"), reply_markup=gender_kb(lang_of(user)), redis=redis
+  prompt = await _replace_profile_screen(
+    callback, t(user, "REG_ASK_GENDER"), redis, reply_markup=gender_kb(lang_of(user))
   )
   await state.update_data(prompt_message_id=prompt.message_id if prompt else None)
   await callback.answer()
@@ -187,8 +206,8 @@ async def prof_visible_save(message: Message, state: FSMContext, user: User, red
 
 @router.callback_query(F.data == "prof:lang")
 async def prof_lang_start(callback: CallbackQuery, user: User, redis: Redis) -> None:
-  await safe_edit_text(
-    callback.message, t(user, "PROFILE_LANG"), reply_markup=language_inline_kb(), redis=redis
+  await _replace_profile_screen(
+    callback, t(user, "PROFILE_LANG"), redis, reply_markup=language_inline_kb()
   )
   await callback.answer()
 
@@ -297,12 +316,11 @@ async def prof_media_clear(callback: CallbackQuery, state: FSMContext, user: Use
 async def prof_city_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
   await state.set_state(ProfileEdit.city)
   await state.update_data(geo_context=GEO_CTX_PROFILE)
-  await safe_delete(callback.message)
-  sent = await send_ui(
-    callback.message,
+  sent = await _replace_profile_screen(
+    callback,
     tx(user, "CITY_ASK"),
+    redis,
     reply_markup=city_input_kb(lang_of(user)),
-    redis=redis,
   )
   await state.update_data(prompt_message_id=sent.message_id if sent else None)
   await callback.answer()
@@ -423,11 +441,11 @@ async def prof_premium(callback: CallbackQuery, user: User, session: AsyncSessio
     until_str = until_local.strftime("%d.%m.%Y %H:%M")
     text = f"{t(user, 'PREMIUM_ACTIVE', until=until_str)}\n\n{text}"
   prices = await get_premium_prices(session)
-  await safe_edit_text(
-    callback.message,
+  await _replace_profile_screen(
+    callback,
     text,
+    redis,
     reply_markup=premium_kb(prices, lang),
-    redis=redis,
     parse_mode="HTML",
   )
   await callback.answer()
@@ -471,13 +489,14 @@ async def prof_disable(callback: CallbackQuery, user: User, redis: Redis) -> Non
   lang = lang_of(user)
   if user.disabled:
     user.disabled = False
-    await show_profile(callback.message, user, redis=redis, edit=True)
+    await dismiss_ui_card(callback.message, redis)
+    await show_profile(callback.message, user, redis=redis)
   else:
-    await safe_edit_text(
-      callback.message,
+    await _replace_profile_screen(
+      callback,
       t(user, "PROFILE_DISABLE_CONFIRM"),
+      redis,
       reply_markup=disable_confirm_kb(lang),
-      redis=redis,
     )
   await callback.answer()
 
@@ -514,7 +533,9 @@ async def prof_disable_leave(callback: CallbackQuery, user: User, redis: Redis) 
 
 @router.callback_query(F.data == "prof:referral")
 async def prof_referral(callback: CallbackQuery, user: User, redis: Redis) -> None:
-  await safe_edit_text(callback.message, t(user, "REFERRAL_INTRO"), reply_markup=referral_kb(lang_of(user)), redis=redis)
+  await _replace_profile_screen(
+    callback, t(user, "REFERRAL_INTRO"), redis, reply_markup=referral_kb(lang_of(user))
+  )
   await callback.answer()
 
 
@@ -598,11 +619,11 @@ async def _begin_withdraw_amount(
   premium_fee_rate = await get_setting_float(session, "withdraw_fee_rate_premium")
   fee_pct = int(round(fee_rate * 100))
   premium_fee_pct = int(round(premium_fee_rate * 100))
-  prompt = await safe_edit_text(
-    callback.message,
+  prompt = await _replace_profile_screen(
+    callback,
     f"{t(user, 'WITHDRAW_INFO', min=withdraw_min, fee_pct=fee_pct, premium_fee_pct=premium_fee_pct)}\n\n"
     f"{tx(user, 'WITHDRAW_AMOUNT')}",
-    redis=redis,
+    redis,
   )
   await state.update_data(
     flow="withdraw",
@@ -618,11 +639,11 @@ async def _show_withdraw_username_required(
   redis: Redis,
 ) -> None:
   await state.clear()
-  await safe_edit_text(
-    callback.message,
+  await _replace_profile_screen(
+    callback,
     tx(user, "WITHDRAW_USERNAME_REQUIRED"),
+    redis,
     reply_markup=withdraw_username_kb(lang_of(user)),
-    redis=redis,
   )
 
 
@@ -855,7 +876,7 @@ async def prof_buy(callback: CallbackQuery, state: FSMContext, session: AsyncSes
     f"{t(user, "BUY_SPARKS_RATES", rub=f"{rub:g}", stars=f"{stars:g}")}\n\n"
     f"{tx(user, 'BUY_SPARKS_ASK')}"
   )
-  prompt = await safe_edit_text(callback.message, text, redis=redis)
+  prompt = await _replace_profile_screen(callback, text, redis)
   await state.update_data(
     flow="buy",
     prompt_message_id=prompt.message_id if prompt else callback.message.message_id,
@@ -910,16 +931,16 @@ async def prof_reset_rating(callback: CallbackQuery, user: User, session: AsyncS
 
   reset_price = await get_setting_int(session, "rating_reset_price")
   free_ok = free_rating_reset_available(user)
-  await safe_edit_text(
-    callback.message,
+  await _replace_profile_screen(
+    callback,
     t(user, "RATING_RESET_INFO"),
+    redis,
     reply_markup=rating_reset_kb(
       is_premium(user),
       lang_of(user),
       free_available=free_ok,
       price=reset_price,
     ),
-    redis=redis,
   )
   await callback.answer()
 
@@ -961,10 +982,10 @@ async def prof_verify(callback: CallbackQuery, state: FSMContext, user: User, re
     return
   code, gesture = _new_verify_challenge()
   await state.set_state(VerificationFlow.video)
-  prompt = await safe_edit_text(
-    callback.message,
+  prompt = await _replace_profile_screen(
+    callback,
     t(user, "VERIFY_INFO", code=code, gesture=gesture),
-    redis=redis,
+    redis,
     parse_mode="HTML",
   )
   await state.update_data(

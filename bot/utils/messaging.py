@@ -270,6 +270,34 @@ async def edit_ui(
   )
 
 
+async def dismiss_ui_card(message: Message, redis: Redis | None) -> None:
+  """Удалить текущий UI целиком: медиагруппу анкеты, ⬇️ и одиночное сообщение.
+
+  Кнопки профиля часто висят на последнем фото или на отдельном «⬇️»,
+  а остальные файлы альбома остаются в чате — их тоже надо снять.
+  """
+  bot = message.bot
+  chat_id = message.chat.id
+  reply_menu_id = await get_reply_menu_message_id(redis, chat_id)
+  to_delete = set(await get_ui_message_ids(redis, chat_id))
+  to_delete.add(message.message_id)
+
+  text = (message.text or "").strip()
+  looks_like_album = bool(message.media_group_id) or text == "⬇️"
+  if looks_like_album:
+    for mid in range(message.message_id - 1, message.message_id - 11, -1):
+      if reply_menu_id is not None and mid == reply_menu_id:
+        break
+      to_delete.add(mid)
+
+  for mid in sorted(to_delete, reverse=True):
+    if reply_menu_id is not None and mid == reply_menu_id:
+      continue
+    await safe_delete(bot=bot, chat_id=chat_id, message_id=mid)
+  if redis is not None:
+    await redis.delete(_ui_key(chat_id))
+
+
 async def send_ui(
   message: Message,
   text: str,
@@ -565,10 +593,7 @@ async def send_profile_media_chat(
   group = _input_media_list(items, text, parse_mode)
   msgs = await bot.send_media_group(chat_id, media=group)
   if reply_markup and msgs:
-    try:
-      await msgs[-1].edit_reply_markup(reply_markup=reply_markup)
-    except Exception:
-      await bot.send_message(chat_id, "⬇️", reply_markup=reply_markup)
+    await bot.send_message(chat_id, "⬇️", reply_markup=reply_markup)
 
 
 def _input_media_list(items, text: str, parse_mode: str | None):
@@ -633,11 +658,8 @@ async def _send_media_group_card(
 
   tracked = list(msgs)
   if reply_markup and msgs:
-    try:
-      await msgs[-1].edit_reply_markup(reply_markup=reply_markup)
-    except Exception:
-      extra = await message.answer("⬇️", reply_markup=reply_markup)
-      tracked.append(extra)
+    extra = await message.answer("⬇️", reply_markup=reply_markup)
+    tracked.append(extra)
   if track:
     return await _track_many(redis, tracked)  # type: ignore[return-value]
   return tracked[-1]
