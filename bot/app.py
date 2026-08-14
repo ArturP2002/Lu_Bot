@@ -10,7 +10,13 @@ from aiogram.types import BotCommand, BotCommandScopeDefault, MenuButtonCommands
 from redis.asyncio import Redis
 
 from bot.handlers import admin, events, goals, luma, menu, payments, profile, rating, registration
-from bot.middlewares.middlewares import DatabaseMiddleware, RedisMiddleware, ThrottleMiddleware, UserMiddleware
+from bot.middlewares.middlewares import (
+    AlbumMiddleware,
+    DatabaseMiddleware,
+    RedisMiddleware,
+    ThrottleMiddleware,
+    UserMiddleware,
+)
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -36,6 +42,8 @@ def create_dispatcher(redis: Redis) -> Dispatcher:
   storage = RedisStorage(redis=redis)
   dp = Dispatcher(storage=storage)
 
+  # Альбом до сессии БД: все файлы группы копятся в памяти, хендлер зовётся один раз.
+  dp.update.middleware(AlbumMiddleware())
   dp.update.middleware(DatabaseMiddleware())
   dp.update.middleware(RedisMiddleware(redis))
   dp.update.middleware(UserMiddleware())

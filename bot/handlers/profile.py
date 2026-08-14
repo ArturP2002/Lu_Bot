@@ -60,7 +60,7 @@ from services.profile_media import (
     MAX_PROFILE_MEDIA,
     consume_profile_media_message,
     get_profile_media,
-    merge_profile_media,
+    persist_profile_media,
     set_profile_media,
 )
 from services.referral_service import count_completed_referrals, get_available_rewards
@@ -219,21 +219,25 @@ async def prof_photo_start(callback: CallbackQuery, state: FSMContext, user: Use
 
 
 @router.message(ProfileEdit.photo, F.photo | F.video | F.video_note | F.animation)
-async def prof_photo_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
+async def prof_photo_save(
+  message: Message,
+  state: FSMContext,
+  user: User,
+  redis: Redis,
+  session: AsyncSession,
+  album: list[Message] | None = None,
+) -> None:
   data = await state.get_data()
   prompt_id = data.get("prompt_message_id")
-  accepted, err_key, warning = await consume_profile_media_message(message, user, redis)
-  if accepted is None:
-    return
-  if err_key:
+  accepted, err_key, warning = await consume_profile_media_message(message, user, redis, album=album)
+  if not accepted:
     if err_key == "MODERATION_BLOCKED":
       await message.answer(t(user, "MODERATION_BLOCKED", reason=warning or "нарушение"))
-    else:
+    elif err_key:
       await message.answer(t(user, err_key))
     return
 
-  merged, dropped = merge_profile_media(get_profile_media(user), accepted)
-  set_profile_media(user, merged)
+  merged, dropped = await persist_profile_media(user, accepted, redis, session)
   if warning:
     await message.answer(t(user, warning))
   if dropped:

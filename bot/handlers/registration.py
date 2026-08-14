@@ -53,7 +53,11 @@ from models import Goal, Referral, User
 from services.blogger_service import record_blogger_view
 from services.geo_service import apply_geo_to_user
 from services.luma_ai_service import moderate_text
-from services.profile_media import consume_profile_media_message, get_profile_media, set_profile_media
+from services.profile_media import (
+    consume_profile_media_message,
+    get_profile_media,
+    persist_profile_media,
+)
 from services.referral_service import process_referral_on_profile_complete
 
 router = Router()
@@ -184,22 +188,27 @@ async def reg_name(message: Message, state: FSMContext, user: User, redis: Redis
 
 
 @router.message(Registration.photo, F.photo | F.video | F.video_note | F.animation)
-async def reg_photo(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-    accepted, err_key, warning = await consume_profile_media_message(message, user, redis)
-    if accepted is None:
-        return
-    if err_key:
+async def reg_photo(
+    message: Message,
+    state: FSMContext,
+    user: User,
+    redis: Redis,
+    session: AsyncSession,
+    album: list[Message] | None = None,
+) -> None:
+    accepted, err_key, warning = await consume_profile_media_message(message, user, redis, album=album)
+    if not accepted:
         if err_key == "MODERATION_BLOCKED":
             body = t(user, "MODERATION_BLOCKED", reason=warning or "нарушение")
         else:
-            body = t(user, err_key)
+            body = t(user, err_key or "MEDIA_NEED_FILE")
         await send_ui(
             message,
             f"{body}\n\n{t(user, 'REG_ASK_PHOTO', name=user.display_name or '')}",
             redis=redis,
         )
         return
-    set_profile_media(user, accepted)
+    await persist_profile_media(user, accepted, redis, session, replace=True)
     await state.set_state(Registration.gender)
     await replace_ui(message, t(user, "REG_ASK_GENDER"), reply_markup=gender_kb(lang_of(user)), redis=redis)
     if warning:

@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Literal
 
 from aiogram import Bot
 from aiogram.types import Message
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import User
 from services.user_service import is_premium
@@ -18,7 +20,6 @@ from services.user_service import is_premium
 logger = logging.getLogger(__name__)
 
 MAX_PROFILE_MEDIA = 10
-ALBUM_WAIT_SEC = 1.25
 MediaKind = Literal["photo", "video"]
 
 
@@ -100,74 +101,53 @@ def media_from_message(message: Message) -> ProfileMedia | None:
     return None
 
 
-async def collect_album(message: Message, redis: Redis) -> list[ProfileMedia] | None:
-    """Собрать альбом Telegram. None — ещё не последнее сообщение группы."""
-    item = media_from_message(message)
-    if item is None:
-        return None
-    group_id = message.media_group_id
-    if not group_id:
-        return [item]
-
-    key = f"album:{message.chat.id}:{group_id}"
-    gen_key = f"{key}:gen"
-    done_key = f"{key}:done"
-    payload = json.dumps(
-        {
-            "type": item.kind,
-            "file_id": item.file_id,
-            "mid": item.message_id,
-            "idx": getattr(message, "message_id", 0) or 0,
-        },
-        ensure_ascii=False,
-    )
-    await redis.rpush(key, payload)
-    await redis.expire(key, 60)
-    gen = int(await redis.incr(gen_key))
-    await redis.expire(gen_key, 60)
-
-    # Ждём хвост альбома. Каждое новое вложение сдвигает «последнего».
-    await asyncio.sleep(ALBUM_WAIT_SEC)
-    latest_raw = await redis.get(gen_key)
-    latest = int(latest_raw) if latest_raw is not None else 0
-    if latest != gen:
-        return None
-
-    claimed = await redis.set(done_key, "1", nx=True, ex=60)
-    if not claimed:
-        return None
-
-    raw = await redis.lrange(key, 0, -1)
-    await redis.delete(key, gen_key, done_key)
-
+def media_from_messages(messages: list[Message]) -> list[ProfileMedia]:
+    """Собрать уникальные вложения из сообщений альбома (порядок по message_id)."""
     items: list[ProfileMedia] = []
     seen: set[str] = set()
-    parsed: list[tuple[int, ProfileMedia]] = []
-    for row in raw:
-        text = row.decode() if isinstance(row, (bytes, bytearray)) else str(row)
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
+    for message in sorted(messages, key=lambda msg: msg.message_id or 0):
+        item = media_from_message(message)
+        if item is None or item.file_id in seen:
             continue
-        kind = data.get("type")
-        fid = data.get("file_id")
-        if kind not in ("photo", "video") or not fid or fid in seen:
-            continue
-        seen.add(fid)
-        mid = data.get("mid")
-        parsed.append(
-            (
-                int(data.get("idx") or mid or 0),
-                ProfileMedia(
-                    kind=kind,
-                    file_id=str(fid),
-                    message_id=int(mid) if mid is not None else None,
-                ),
-            )
-        )
-    parsed.sort(key=lambda pair: pair[0])
-    items = [item for _, item in parsed]
+        seen.add(item.file_id)
+        items.append(item)
     return items[:MAX_PROFILE_MEDIA]
+
+
+@asynccontextmanager
+async def _with_media_lock(redis: Redis, telegram_id: int):
+    """SET NX, чтобы два апдейта не перезаписали media_json."""
+    key = f"media_lock:{telegram_id}"
+    acquired = False
+    for _ in range(60):
+        if await redis.set(key, "1", nx=True, ex=30):
+            acquired = True
+            break
+        await asyncio.sleep(0.05)
+    try:
+        yield
+    finally:
+        if acquired:
+            await redis.delete(key)
+
+
+async def persist_profile_media(
+    user: User,
+    accepted: list[ProfileMedia],
+    redis: Redis,
+    session: AsyncSession,
+    *,
+    replace: bool = False,
+) -> tuple[list[ProfileMedia], int]:
+    """Сохранить медиа под локом. replace=True — регистрация (первая загрузка)."""
+    async with _with_media_lock(redis, user.telegram_id):
+        await session.refresh(user)
+        if replace:
+            set_profile_media(user, accepted[:MAX_PROFILE_MEDIA])
+            return get_profile_media(user), 0
+        merged, dropped = merge_profile_media(get_profile_media(user), accepted)
+        set_profile_media(user, merged)
+        return merged, dropped
 
 
 async def ingest_profile_media(
@@ -227,17 +207,21 @@ async def ingest_profile_media(
 async def consume_profile_media_message(
     message: Message,
     user: User,
-    redis: Redis,
+    redis: Redis | None = None,
+    album: list[Message] | None = None,
 ) -> tuple[list[ProfileMedia] | None, str | None, str | None]:
-    """Собрать альбом, промодерировать, удалить исходные сообщения пользователя.
-
-    (None, None, None) — это не лидер альбома, хендлер должен выйти.
-    """
+    """Промодерировать вложения (альбом из middleware или одно сообщение) и удалить исходники."""
     from bot.utils.messaging import safe_delete
 
-    items = await collect_album(message, redis)
-    if items is None:
-        return None, None, None
+    items = media_from_messages(album if album else [message])
+    if not items:
+        return [], "MEDIA_NEED_FILE", None
+    logger.info(
+        "profile media consume: group=%s files=%s kinds=%s",
+        message.media_group_id,
+        len(items),
+        [item.kind for item in items],
+    )
     accepted, err_key, warning = await ingest_profile_media(message.bot, user, items)
     for item in items:
         if item.message_id:
