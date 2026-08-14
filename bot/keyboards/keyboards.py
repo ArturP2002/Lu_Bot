@@ -95,7 +95,10 @@ def seeking_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
 
     labels = list(SEEKING_BUTTONS[normalize_lang(lang)].keys())
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=labels[0]), KeyboardButton(text=labels[1])]],
+        keyboard=[
+            [KeyboardButton(text=labels[0]), KeyboardButton(text=labels[1])],
+            [KeyboardButton(text=labels[2])],
+        ],
         resize_keyboard=True,
         is_persistent=True,
     )

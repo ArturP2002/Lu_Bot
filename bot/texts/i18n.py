@@ -23,10 +23,10 @@ GENDER_BUTTONS: dict[str, dict[str, str]] = {
 }
 
 SEEKING_BUTTONS: dict[str, dict[str, str]] = {
-    "ru": {"Мужчин": "men", "Женщин": "women"},
-    "be": {"Мужчын": "men", "Жанчын": "women"},
-    "uk": {"Чоловіків": "men", "Жінок": "women"},
-    "kk": {"Ерлерді": "men", "Әйелдерді": "women"},
+    "ru": {"Мужчин": "men", "Женщин": "women", "Всех": "both"},
+    "be": {"Мужчын": "men", "Жанчын": "women", "Усіх": "both"},
+    "uk": {"Чоловіків": "men", "Жінок": "women", "Усіх": "both"},
+    "kk": {"Ерлерді": "men", "Әйелдерді": "women", "Барлығын": "both"},
 }
 
 VISIBLE_BUTTONS: dict[str, dict[str, str]] = {
