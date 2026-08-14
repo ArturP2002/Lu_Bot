@@ -611,6 +611,10 @@ def _input_media_list(items, text: str, parse_mode: str | None):
   return group
 
 
+def _is_parse_entities_error(exc: Exception) -> bool:
+  return isinstance(exc, TelegramBadRequest) and "parse entities" in str(exc).lower()
+
+
 async def _send_media_group_card(
   message: Message,
   text: str,
@@ -634,7 +638,20 @@ async def _send_media_group_card(
     except TelegramBadRequest as e:
       if _is_invalid_file_id_error(e):
         logger.warning("Invalid profile media file_id, fallback to text")
-        sent = await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        try:
+          sent = await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except TelegramBadRequest as e2:
+          if _is_parse_entities_error(e2):
+            sent = await message.answer(text, reply_markup=reply_markup, parse_mode=None)
+          else:
+            raise
+      elif _is_parse_entities_error(e):
+        logger.warning("HTML caption parse failed, retry without parse_mode")
+        plain = {"caption": text, "reply_markup": reply_markup, "parse_mode": None}
+        if item.kind == "video":
+          sent = await message.answer_video(item.file_id, **plain)
+        else:
+          sent = await message.answer_photo(item.file_id, **plain)
       else:
         raise
     if track:
@@ -644,17 +661,34 @@ async def _send_media_group_card(
   group = _input_media_list(items, text, parse_mode)
   try:
     msgs = await message.answer_media_group(group)
-  except TelegramBadRequest:
-    logger.warning("send_media_group failed, fallback to first item", exc_info=True)
-    return await _send_media_group_card(
-      message,
-      text,
-      items[:1],
-      reply_markup=reply_markup,
-      redis=redis,
-      parse_mode=parse_mode,
-      track=track,
-    )
+  except TelegramBadRequest as e:
+    if _is_parse_entities_error(e):
+      logger.warning("HTML media_group caption parse failed, retry plain")
+      group = _input_media_list(items, text, None)
+      try:
+        msgs = await message.answer_media_group(group)
+      except TelegramBadRequest:
+        logger.warning("send_media_group failed, fallback to first item", exc_info=True)
+        return await _send_media_group_card(
+          message,
+          text,
+          items[:1],
+          reply_markup=reply_markup,
+          redis=redis,
+          parse_mode=None,
+          track=track,
+        )
+    else:
+      logger.warning("send_media_group failed, fallback to first item", exc_info=True)
+      return await _send_media_group_card(
+        message,
+        text,
+        items[:1],
+        reply_markup=reply_markup,
+        redis=redis,
+        parse_mode=parse_mode,
+        track=track,
+      )
 
   tracked = list(msgs)
   if reply_markup and msgs:

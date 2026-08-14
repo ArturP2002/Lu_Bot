@@ -83,12 +83,14 @@ def format_other_profile(user: User, lang_or_user="ru", *, viewer: User | None =
         goal_text = tx(
             lang,
             "PROFILE_GOAL_OTHER",
-            title=goal.title,
+            title=escape(goal.title or "—"),
             collected=goal.collected_sparks,
             target=goal.target_sparks,
             remaining=remaining,
             percent=min(100, percent),
         )
+    elif goal and goal.title:
+        goal_text = escape(goal.title)
     else:
         goal_text = "—"
     badges = ""
@@ -102,15 +104,15 @@ def format_other_profile(user: User, lang_or_user="ru", *, viewer: User | None =
     return tx(
         lang,
         "PROFILE_OTHER",
-        name=user.display_name,
+        name=escape(user.display_name or "—"),
         age=years_label(user.age, lang),
         badges=badges,
-        bio=user.bio or "",
+        bio=escape(user.bio or ""),
         rating=user.rating_avg,
         rated=user.rating_count,
         attended=user.events_attended,
         organized=user.events_organized,
         goal=goal_text,
-        city=user.city or "—",
+        city=escape(user.city or "—"),
         distance=distance,
     )
