@@ -24,6 +24,7 @@ from services.luma_ai_service import (
   search_events,
   search_people,
 )
+from services.profile_media import get_profile_media
 from services.user_service import get_user_by_id, is_premium
 
 router = Router()
@@ -113,11 +114,11 @@ async def show_luma_person_card(
   await edit_or_send(
     message,
     text,
-    photo_file_id=profile.photo_file_id,
+    media=get_profile_media(profile),
     reply_markup=kb,
     redis=redis,
     edit=edit,
-    track=False,
+    track=True,
     finalize_previous=finalize_previous,
   )
 

@@ -42,6 +42,9 @@ from bot.utils.messaging import (
     cleanup_user_and_prompt,
     safe_edit_media,
     safe_edit_text,
+    schedule_delete,
+    send_profile_media,
+    send_profile_media_chat,
     send_ui,
     strip_inline_keyboard,
 )
@@ -63,6 +66,7 @@ from services.event_service import (
 )
 from services.geo_service import distance_suffix_for, geocode_city, GEO_SOURCE_CITY_CENTER
 from services.luma_ai_service import moderate_text
+from services.profile_media import get_profile_media
 from services.sparks_service import has_paid_event_fee, pay_event_fee
 from services.user_service import get_user_by_id, is_premium
 
@@ -144,10 +148,7 @@ async def _send_application_card(
   if prefix:
     text = f"{prefix}\n\n{text}"
   kb = app_decision_kb(app_id, lang=lang)
-  if applicant.photo_file_id:
-    await bot.send_photo(chat_id, applicant.photo_file_id, caption=text, reply_markup=kb)
-  else:
-    await bot.send_message(chat_id, text, reply_markup=kb)
+  await send_profile_media_chat(bot, chat_id, text, get_profile_media(applicant), reply_markup=kb)
 
 
 async def show_events_menu(
@@ -678,12 +679,12 @@ async def ev_cat_browse(callback: CallbackQuery, user: User, session: AsyncSessi
         empty_key = "EVENT_EMPTY_TODAY"
       elif ft == "geo" or "рядом" in name_l:
         empty_key = "EVENT_EMPTY_NEAR"
-    await safe_edit_text(
+    sent = await safe_edit_text(
       callback.message,
       tx(user, empty_key),
-      reply_markup=events_menu_kb(lang),
       redis=redis,
     )
+    schedule_delete(sent, delay=3)
     await callback.answer()
     return
   org = await get_user_by_id(session, event.organizer_id)
@@ -723,7 +724,8 @@ async def ev_next(callback: CallbackQuery, user: User, session: AsyncSession, re
 
   event = await get_next_event(session, user, category_id=cat_id, after_id=after_id, redis=redis)
   if not event:
-    await safe_edit_text(callback.message, tx(user, "EVENT_NO_MORE"), reply_markup=events_menu_kb(lang), redis=redis)
+    sent = await safe_edit_text(callback.message, tx(user, "EVENT_NO_MORE"), redis=redis)
+    schedule_delete(sent, delay=3)
     await callback.answer()
     return
   org = await get_user_by_id(session, event.organizer_id)
@@ -860,13 +862,19 @@ async def ev_apps(callback: CallbackQuery, user: User, session: AsyncSession, re
     text = format_other_profile(u, lang)
     kb = app_decision_kb(app.id, lang=lang)
     if first:
-      await safe_edit_media(callback.message, text, u.photo_file_id, reply_markup=kb, redis=redis)
+      await send_profile_media(
+        callback.message,
+        text,
+        get_profile_media(u),
+        reply_markup=kb,
+        redis=redis,
+        edit=True,
+      )
       first = False
     else:
-      if u.photo_file_id:
-        await callback.message.answer_photo(u.photo_file_id, caption=text, reply_markup=kb)
-      else:
-        await callback.message.answer(text, reply_markup=kb)
+      await send_profile_media_chat(
+        callback.bot, callback.message.chat.id, text, get_profile_media(u), reply_markup=kb
+      )
   await callback.answer()
 
 

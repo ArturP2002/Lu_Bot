@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -10,6 +11,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     InlineKeyboardMarkup,
     InputMediaPhoto,
+    InputMediaVideo,
     Message,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
@@ -63,22 +65,53 @@ async def safe_delete(
     pass
 
 
-async def remember_ui_message(redis: Redis | None, chat_id: int, message_id: int) -> None:
+def schedule_delete(message: Message | None, delay: float = 3.0) -> None:
+  """Удалить сообщение через delay секунд, не блокируя обработчик."""
+  if message is None:
+    return
+  bot = message.bot
+  chat_id = message.chat.id
+  message_id = message.message_id
+
+  async def _run() -> None:
+    await asyncio.sleep(delay)
+    await safe_delete(bot=bot, chat_id=chat_id, message_id=message_id)
+
+  asyncio.create_task(_run())
+
+
+async def remember_ui_message(
+  redis: Redis | None, chat_id: int, message_id: int | list[int] | tuple[int, ...]
+) -> None:
   if redis is None:
     return
-  await redis.set(_ui_key(chat_id), str(message_id), ex=UI_MSG_TTL)
+  if isinstance(message_id, int):
+    value = str(message_id)
+  else:
+    value = ",".join(str(i) for i in message_id if i)
+  if not value:
+    return
+  await redis.set(_ui_key(chat_id), value, ex=UI_MSG_TTL)
+
+
+async def get_ui_message_ids(redis: Redis | None, chat_id: int) -> list[int]:
+  if redis is None:
+    return []
+  raw = await redis.get(_ui_key(chat_id))
+  if raw is None:
+    return []
+  text = raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+  ids: list[int] = []
+  for part in text.split(","):
+    part = part.strip()
+    if part.isdigit():
+      ids.append(int(part))
+  return ids
 
 
 async def get_ui_message_id(redis: Redis | None, chat_id: int) -> int | None:
-  if redis is None:
-    return None
-  raw = await redis.get(_ui_key(chat_id))
-  if raw is None:
-    return None
-  try:
-    return int(raw)
-  except (TypeError, ValueError):
-    return None
+  ids = await get_ui_message_ids(redis, chat_id)
+  return ids[-1] if ids else None
 
 
 async def remember_reply_menu_message(redis: Redis | None, chat_id: int, message_id: int) -> None:
@@ -102,16 +135,14 @@ async def get_reply_menu_message_id(redis: Redis | None, chat_id: int) -> int | 
 
 async def delete_previous_ui(bot: Bot, redis: Redis | None, chat_id: int) -> None:
   """Удалить предыдущий UI-экран бота (не трогая носитель Reply-меню)."""
-  msg_id = await get_ui_message_id(redis, chat_id)
-  if msg_id is None:
+  ids = await get_ui_message_ids(redis, chat_id)
+  if not ids:
     return
   reply_menu_id = await get_reply_menu_message_id(redis, chat_id)
-  if reply_menu_id is not None and msg_id == reply_menu_id:
-    # Носитель клавиатуры не удаляем — только снимаем UI-метку
-    if redis is not None:
-      await redis.delete(_ui_key(chat_id))
-    return
-  await safe_delete(bot=bot, chat_id=chat_id, message_id=msg_id)
+  for msg_id in ids:
+    if reply_menu_id is not None and msg_id == reply_menu_id:
+      continue
+    await safe_delete(bot=bot, chat_id=chat_id, message_id=msg_id)
   if redis is not None:
     await redis.delete(_ui_key(chat_id))
 
@@ -175,6 +206,14 @@ async def _track(redis: Redis | None, msg: Message | None) -> Message | None:
   return msg
 
 
+async def _track_many(redis: Redis | None, messages: list[Message]) -> Message | None:
+  if not messages:
+    return None
+  if redis is not None:
+    await remember_ui_message(redis, messages[0].chat.id, [m.message_id for m in messages])
+  return messages[-1]
+
+
 async def clear_reply_menu_tracking(redis: Redis | None, chat_id: int) -> None:
   """Сбросить метку носителя Reply-меню (например, перед регистрацией)."""
   if redis is None:
@@ -227,7 +266,7 @@ async def replace_ui(
   старый экран — иначе клиент Telegram часто «теряет» клавиатуру.
   """
   if isinstance(reply_markup, ReplyKeyboardMarkup):
-    old_id = await get_ui_message_id(redis, message.chat.id)
+    old_ids = await get_ui_message_ids(redis, message.chat.id)
     sent = await send_ui(
       message,
       text,
@@ -237,10 +276,13 @@ async def replace_ui(
       parse_mode=parse_mode,
       track=True,
     )
-    if old_id is not None and sent is not None and old_id != sent.message_id:
-      reply_menu_id = await get_reply_menu_message_id(redis, message.chat.id)
-      if reply_menu_id is None or old_id != reply_menu_id:
-        await safe_delete(bot=message.bot, chat_id=message.chat.id, message_id=old_id)
+    reply_menu_id = await get_reply_menu_message_id(redis, message.chat.id)
+    for old_id in old_ids:
+      if sent is not None and old_id == sent.message_id:
+        continue
+      if reply_menu_id is not None and old_id == reply_menu_id:
+        continue
+      await safe_delete(bot=message.bot, chat_id=message.chat.id, message_id=old_id)
     return sent
 
   await delete_previous_ui(message.bot, redis, message.chat.id)
@@ -301,6 +343,11 @@ async def safe_edit_text(
   Если исходное сообщение с фото — удаляем его и шлём текстовый экран
   (Telegram не умеет убрать медиа через edit).
   """
+  ids = await get_ui_message_ids(redis, message.chat.id)
+  if len(ids) > 1:
+    await delete_previous_ui(message.bot, redis, message.chat.id)
+    return await send_ui(message, text, reply_markup=reply_markup, redis=redis, parse_mode=parse_mode)
+
   kwargs: dict[str, Any] = {"reply_markup": reply_markup}
   if parse_mode is not None:
     kwargs["parse_mode"] = parse_mode
@@ -372,11 +419,187 @@ async def safe_edit_media(
   )
 
 
+async def send_profile_media(
+  message: Message,
+  text: str,
+  media: list,
+  *,
+  reply_markup: InlineKeyboardMarkup | None = None,
+  redis: Redis | None = None,
+  parse_mode: str | None = None,
+  edit: bool = True,
+  track: bool = True,
+) -> Message:
+  """Показать анкету: одно фото/видео или медиагруппа."""
+  from services.profile_media import ProfileMedia
+
+  items: list[ProfileMedia] = list(media or [])
+  if not items:
+    return await edit_or_send(
+      message,
+      text,
+      reply_markup=reply_markup,
+      redis=redis,
+      parse_mode=parse_mode,
+      edit=edit,
+      track=track,
+    )
+
+  ids = await get_ui_message_ids(redis, message.chat.id)
+  can_inplace = (
+    edit
+    and message.from_user is not None
+    and message.from_user.is_bot
+    and len(items) == 1
+    and len(ids) <= 1
+    and (
+      (items[0].kind == "photo" and bool(message.photo))
+      or (items[0].kind == "video" and bool(message.video or message.animation))
+    )
+  )
+  if can_inplace:
+    cls = InputMediaPhoto if items[0].kind == "photo" else InputMediaVideo
+    try:
+      await message.edit_media(
+        media=cls(media=items[0].file_id, caption=text, parse_mode=parse_mode or "HTML"),
+        reply_markup=reply_markup,
+      )
+      if track:
+        return await _track(redis, message)  # type: ignore[return-value]
+      return message
+    except Exception:
+      logger.debug("inplace profile media edit failed", exc_info=True)
+
+  await delete_previous_ui(message.bot, redis, message.chat.id)
+  if edit and message.from_user and message.from_user.is_bot:
+    if message.message_id not in ids:
+      await safe_delete(message)
+
+  return await _send_media_group_card(
+    message,
+    text,
+    items,
+    reply_markup=reply_markup,
+    redis=redis,
+    parse_mode=parse_mode,
+    track=track,
+  )
+
+
+async def send_profile_media_chat(
+  bot: Bot,
+  chat_id: int,
+  text: str,
+  media: list,
+  *,
+  reply_markup: InlineKeyboardMarkup | None = None,
+  parse_mode: str | None = None,
+) -> None:
+  """Отправить анкету в чат без контекста текущего UI-сообщения."""
+  from services.profile_media import ProfileMedia
+
+  items: list[ProfileMedia] = list(media or [])
+  kwargs: dict[str, Any] = {"reply_markup": reply_markup}
+  if parse_mode is not None:
+    kwargs["parse_mode"] = parse_mode
+  if not items:
+    await bot.send_message(chat_id, text, **kwargs)
+    return
+  if len(items) == 1:
+    item = items[0]
+    if item.kind == "video":
+      await bot.send_video(chat_id, item.file_id, caption=text, **kwargs)
+    else:
+      await bot.send_photo(chat_id, item.file_id, caption=text, **kwargs)
+    return
+
+  group = _input_media_list(items, text, parse_mode)
+  msgs = await bot.send_media_group(chat_id, media=group)
+  if reply_markup and msgs:
+    try:
+      await msgs[-1].edit_reply_markup(reply_markup=reply_markup)
+    except Exception:
+      await bot.send_message(chat_id, "⬇️", reply_markup=reply_markup)
+
+
+def _input_media_list(items, text: str, parse_mode: str | None):
+  group = []
+  cap_mode = parse_mode if parse_mode is not None else "HTML"
+  for i, item in enumerate(items):
+    kwargs: dict[str, Any] = {}
+    if i == 0:
+      kwargs["caption"] = text
+      kwargs["parse_mode"] = cap_mode
+    if item.kind == "video":
+      group.append(InputMediaVideo(media=item.file_id, **kwargs))
+    else:
+      group.append(InputMediaPhoto(media=item.file_id, **kwargs))
+  return group
+
+
+async def _send_media_group_card(
+  message: Message,
+  text: str,
+  items,
+  *,
+  reply_markup: InlineKeyboardMarkup | None = None,
+  redis: Redis | None = None,
+  parse_mode: str | None = None,
+  track: bool = True,
+) -> Message:
+  if len(items) == 1:
+    item = items[0]
+    kwargs: dict[str, Any] = {"caption": text, "reply_markup": reply_markup}
+    if parse_mode is not None:
+      kwargs["parse_mode"] = parse_mode
+    try:
+      if item.kind == "video":
+        sent = await message.answer_video(item.file_id, **kwargs)
+      else:
+        sent = await message.answer_photo(item.file_id, **kwargs)
+    except TelegramBadRequest as e:
+      if _is_invalid_file_id_error(e):
+        logger.warning("Invalid profile media file_id, fallback to text")
+        sent = await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+      else:
+        raise
+    if track:
+      return await _track(redis, sent)  # type: ignore[return-value]
+    return sent
+
+  group = _input_media_list(items, text, parse_mode)
+  try:
+    msgs = await message.answer_media_group(group)
+  except TelegramBadRequest:
+    logger.warning("send_media_group failed, fallback to first item", exc_info=True)
+    return await _send_media_group_card(
+      message,
+      text,
+      items[:1],
+      reply_markup=reply_markup,
+      redis=redis,
+      parse_mode=parse_mode,
+      track=track,
+    )
+
+  tracked = list(msgs)
+  if reply_markup and msgs:
+    try:
+      await msgs[-1].edit_reply_markup(reply_markup=reply_markup)
+    except Exception:
+      extra = await message.answer("⬇️", reply_markup=reply_markup)
+      tracked.append(extra)
+  if track:
+    return await _track_many(redis, tracked)  # type: ignore[return-value]
+  return tracked[-1]
+
+
 async def edit_or_send(
   message: Message,
   text: str,
   *,
   photo_file_id: str | None = None,
+  media: list | None = None,
   reply_markup: InlineKeyboardMarkup | None = None,
   redis: Redis | None = None,
   parse_mode: str | None = None,
@@ -385,8 +608,31 @@ async def edit_or_send(
   finalize_previous: bool = False,
 ) -> Message:
   """Edit текущего сообщения или отправить новый UI-экран."""
+  if media is not None:
+    return await send_profile_media(
+      message,
+      text,
+      media,
+      reply_markup=reply_markup,
+      redis=redis,
+      parse_mode=parse_mode,
+      edit=edit,
+      track=track,
+    )
   if finalize_previous and message.from_user and message.from_user.is_bot:
     await strip_inline_keyboard(message)
+  ids = await get_ui_message_ids(redis, message.chat.id)
+  if len(ids) > 1:
+    await delete_previous_ui(message.bot, redis, message.chat.id)
+    return await send_ui(
+      message,
+      text,
+      photo_file_id=photo_file_id,
+      reply_markup=reply_markup,
+      redis=redis,
+      parse_mode=parse_mode,
+      track=track,
+    )
   if edit and message.from_user and message.from_user.is_bot:
     return await safe_edit_media(
       message,

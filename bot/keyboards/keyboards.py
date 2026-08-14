@@ -152,6 +152,14 @@ def city_confirm_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     )
 
 
+def skip_optional_kb(lang: str = "ru", callback_data: str = "skip") -> InlineKeyboardMarkup:
+    from bot.texts.i18n import t
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=t(lang, "BTN_SKIP_OPTIONAL"), callback_data=callback_data)]]
+    )
+
+
 def next_step_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     from bot.texts.i18n import t
 

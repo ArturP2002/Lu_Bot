@@ -22,13 +22,15 @@ from bot.texts.ui_labels import service_err
 from bot.utils.messaging import (
     cleanup_user_and_prompt,
     edit_or_send,
-    safe_edit_media,
     safe_edit_text,
+    schedule_delete,
+    send_profile_media_chat,
     strip_inline_keyboard,
 )
 from models import Complaint, Like, Rating, User
 from services.feed_service import get_next_profile, mark_feed_exhausted, recalculate_rating, record_profile_skip
 from services.match_service import check_mutual_like
+from services.profile_media import get_profile_media
 from services.sparks_service import support_goal
 from services.user_service import get_user_by_id
 
@@ -54,10 +56,9 @@ async def send_user_card(
     text = format_other_profile(profile, lang, viewer=viewer)
     if prefix:
         text = f"{prefix}\n\n{text}"
-    if profile.photo_file_id:
-        await bot.send_photo(chat_id, profile.photo_file_id, caption=text, reply_markup=reply_markup)
-    else:
-        await bot.send_message(chat_id, text, reply_markup=reply_markup)
+    await send_profile_media_chat(
+        bot, chat_id, text, get_profile_media(profile), reply_markup=reply_markup
+    )
 
 
 async def notify_match(bot: Bot, recipient: User, other: User) -> None:
@@ -110,7 +111,8 @@ async def show_next_profile(
     target = await get_next_profile(session, user, exclude or [], redis=redis)
     if not target:
         mark_feed_exhausted(user)
-        await edit_or_send(message, t(user, "RATE_EMPTY"), redis=redis, edit=edit, track=False)
+        sent = await edit_or_send(message, t(user, "RATE_EMPTY"), redis=redis, edit=edit, track=False)
+        schedule_delete(sent, delay=3)
         return
     from services.event_service import sync_events_organized
 
@@ -120,11 +122,11 @@ async def show_next_profile(
     await edit_or_send(
         message,
         text,
-        photo_file_id=target.photo_file_id,
+        media=get_profile_media(target),
         reply_markup=kb,
         redis=redis,
         edit=edit,
-        track=False,
+        track=True,
     )
 
 
@@ -190,12 +192,13 @@ async def like_view_profile(callback: CallbackQuery, user: User, session: AsyncS
         await callback.answer(t(user, "RATE_NOT_FOUND"), show_alert=True)
         return
     text = format_other_profile(profile, lang_of(user), viewer=user)
-    await safe_edit_media(
+    await edit_or_send(
         callback.message,
         text,
-        profile.photo_file_id,
+        media=get_profile_media(profile),
         reply_markup=rate_card_kb(profile.id, lang_of(user)),
         redis=redis,
+        edit=True,
     )
     await callback.answer()
 
@@ -280,12 +283,13 @@ async def rate_stars(callback: CallbackQuery, user: User, session: AsyncSession,
     target = await get_user_by_id(session, target_id)
     text = format_other_profile(target, lang_of(user), viewer=user) if target else t(user, "RATE_AFTER_STARS")
     text = f"{text}\n\n{t(user, 'RATE_AFTER_STARS')}"
-    await safe_edit_media(
+    await edit_or_send(
         callback.message,
         text,
-        target.photo_file_id if target else None,
+        media=get_profile_media(target) if target else [],
         reply_markup=rate_after_stars_kb(target_id, lang_of(user)),
         redis=redis,
+        edit=True,
     )
 
 
@@ -374,11 +378,11 @@ async def rate_support_amount(
     await edit_or_send(
         message,
         text,
-        photo_file_id=target.photo_file_id,
+        media=get_profile_media(target),
         reply_markup=rate_card_kb(target.id, lang_of(user)),
         redis=redis,
         edit=False,
-        track=False,
+        track=True,
     )
 
 

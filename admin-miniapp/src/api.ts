@@ -76,6 +76,7 @@ export interface UserDetail extends AdminUser {
   bio: string | null
   contact_phone: string | null
   photo_file_id: string | null
+  media?: { type: 'photo' | 'video'; file_id: string }[]
   profile_completed: boolean
   rating_avg: number
   rating_count: number

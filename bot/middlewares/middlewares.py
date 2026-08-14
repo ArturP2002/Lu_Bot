@@ -103,6 +103,8 @@ class ThrottleMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         from_user = data.get("tg_user")
+        if isinstance(obj, Message) and obj.media_group_id:
+            return await handler(event, data)
         if from_user and isinstance(obj, Message):
             text = (obj.text or "").strip()
             if not (text.startswith("/") or text in all_main_menu_texts()):

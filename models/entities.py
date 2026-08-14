@@ -123,6 +123,7 @@ class User(Base):
     country: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     display_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     photo_file_id: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    media_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     gender: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     seeking: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     visible_to: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)

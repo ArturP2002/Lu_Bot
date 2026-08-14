@@ -63,6 +63,7 @@ async def init_db() -> None:
                 "BOOLEAN NOT NULL DEFAULT false"
             )
         )
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS media_json TEXT"))
     print("Таблицы созданы.")
 
 

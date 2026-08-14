@@ -24,6 +24,7 @@ from bot.keyboards.keyboards import (
     referral_kb,
     referral_standard_kb,
     seeking_kb,
+    skip_optional_kb,
     sparks_action_kb,
     visible_kb,
     withdraw_username_kb,
@@ -43,7 +44,6 @@ from bot.utils.messaging import (
     cleanup_user_and_prompt,
     edit_or_send,
     ensure_reply_menu,
-    resolve_photo_file_id,
     safe_delete,
     safe_edit_text,
     send_ui,
@@ -54,7 +54,8 @@ from models import User, Verification
 from models.entities import VerificationStatus
 from services.blogger_service import apply_blogger, blogger_link, get_or_create_blogger
 from services.geo_service import apply_geo_to_user
-from services.luma_ai_service import moderate_telegram_photo, moderate_text
+from services.luma_ai_service import moderate_text
+from services.profile_media import consume_profile_media_message, get_profile_media, set_profile_media
 from services.referral_service import count_completed_referrals, get_available_rewards
 from services.sparks_service import withdraw_sparks
 from services.user_service import free_rating_reset_available, is_premium, sync_telegram_username
@@ -78,11 +79,10 @@ async def show_profile(
     await sync_events_organized(session, user)
   text = format_own_profile(user)
   kb = profile_kb(user.disabled, lang_of(user))
-  photo_file_id = await resolve_photo_file_id(message.bot, user)
   await edit_or_send(
     message,
     text,
-    photo_file_id=photo_file_id,
+    media=get_profile_media(user),
     reply_markup=kb,
     redis=redis,
     edit=edit,
@@ -198,18 +198,25 @@ async def prof_photo_start(callback: CallbackQuery, state: FSMContext, user: Use
   await _start_prompt(callback, state, ProfileEdit.photo, tx(user, "PHOTO_ASK"), redis)
 
 
-@router.message(ProfileEdit.photo, F.photo)
+@router.message(ProfileEdit.photo, F.photo | F.video | F.video_note)
 async def prof_photo_save(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   data = await state.get_data()
   prompt_id = data.get("prompt_message_id")
-  file_id = message.photo[-1].file_id
-  ok, reason = await moderate_telegram_photo(message.bot, file_id)
-  if not ok:
-    await message.answer(t(user, "MODERATION_BLOCKED", reason=reason))
+  accepted, err_key, warning = await consume_profile_media_message(message, user, redis)
+  if accepted is None:
     return
-  user.photo_file_id = file_id
+  if err_key:
+    if err_key == "MODERATION_BLOCKED":
+      await message.answer(t(user, "MODERATION_BLOCKED", reason=warning or "нарушение"))
+    else:
+      await message.answer(t(user, err_key))
+    return
+  set_profile_media(user, accepted)
   await state.clear()
-  await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
+  if prompt_id:
+    await safe_delete(bot=message.bot, chat_id=message.chat.id, message_id=prompt_id)
+  if warning:
+    await message.answer(t(user, warning))
   await show_profile(message, user, redis=redis)
 
 
@@ -288,7 +295,14 @@ async def prof_city_confirm(callback: CallbackQuery, state: FSMContext, user: Us
 
 @router.callback_query(F.data == "prof:bio")
 async def prof_bio_start(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
-  await _start_prompt(callback, state, ProfileEdit.bio, t(user, "REG_ASK_BIO"), redis)
+  await _start_prompt(
+    callback,
+    state,
+    ProfileEdit.bio,
+    t(user, "REG_ASK_BIO"),
+    redis,
+    reply_markup=skip_optional_kb(lang_of(user), "prof:skip_bio"),
+  )
 
 
 @router.message(ProfileEdit.bio, F.text)
@@ -299,10 +313,18 @@ async def prof_bio_save(message: Message, state: FSMContext, user: User, redis: 
   if not ok:
     await message.answer(t(user, "MODERATION_BLOCKED", reason=reason))
     return
-  user.bio = message.text.strip()[:1000]
+  user.bio = message.text.strip()[:1000] or None
   await state.clear()
   await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
   await show_profile(message, user, redis=redis)
+
+
+@router.callback_query(ProfileEdit.bio, F.data == "prof:skip_bio")
+async def prof_bio_skip(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+  user.bio = None
+  await state.clear()
+  await show_profile(callback.message, user, redis=redis)
+  await callback.answer()
 
 
 @router.callback_query(F.data == "prof:premium")
@@ -861,10 +883,6 @@ def _new_verify_challenge() -> tuple[str, str]:
 
 @router.callback_query(F.data == "prof:verify")
 async def prof_verify(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
-  if not user.photo_file_id:
-    await safe_edit_text(callback.message, t(user, "VERIFY_NEED_PHOTO"), redis=redis)
-    await callback.answer()
-    return
   if user.verified:
     await callback.answer(tx(user, "VERIFY_ALREADY"), show_alert=True)
     return
@@ -890,11 +908,6 @@ async def prof_verify_video(
 ) -> None:
   data = await state.get_data()
   prompt_id = data.get("prompt_message_id")
-  if not user.photo_file_id:
-    await state.clear()
-    await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
-    await send_ui(message, t(user, "VERIFY_NEED_PHOTO"), redis=redis)
-    return
 
   code = data.get("vcode")
   gesture = data.get("vgesture")
@@ -909,7 +922,6 @@ async def prof_verify_video(
   try:
     result = await verify_video_note(
       message.bot,
-      photo_file_id=user.photo_file_id,
       video_file_id=video_file_id,
       expected_code=code,
       expected_gesture=gesture,

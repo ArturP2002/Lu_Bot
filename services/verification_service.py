@@ -1,4 +1,4 @@
-"""AI-проверка верификационного видео (лицо, жест, код)."""
+"""AI-проверка верификационного видео: живость, жест, произнесённый код."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ class VerificationCheckResult:
     """Результат AI-проверки верификации."""
 
     passed: bool
-    face_match: bool
+    liveness_ok: bool
     gesture_ok: bool
     code_ok: bool
     transcript: str
@@ -163,45 +163,42 @@ async def transcribe_video(client: AsyncOpenAI, video_path: Path) -> str:
     return (result.text or "").strip()
 
 
-async def analyze_face_and_gesture(
+async def analyze_liveness_and_gesture(
     client: AsyncOpenAI,
     *,
-    profile_photo: bytes,
     frames: list[bytes],
     expected_gesture: str,
     expected_code: str,
     transcript: str,
 ) -> tuple[bool, bool, str]:
-    """Сравнить лицо с фото анкеты и проверить жест через Vision."""
+    """Проверить, что в кружке живой человек, и что показан нужный жест."""
     gesture_hint = GESTURE_HINTS.get(expected_gesture, expected_gesture)
     content: list[dict] = [
         {
             "type": "text",
             "text": (
                 "Ты проверяешь верификацию пользователя dating-бота.\n"
-                "Первое изображение — фото из анкеты. Остальные — кадры из видеосообщения (кружок).\n\n"
+                "Изображения — кадры из видеосообщения (кружок). Сравнивать с фото анкеты НЕ нужно: "
+                "фото анкеты можно менять, личность по фото не подтверждаем.\n\n"
                 f"Ожидаемый жест: {expected_gesture} ({gesture_hint}).\n"
                 f"Ожидаемый код (должен быть произнесён): {expected_code}.\n"
                 f"Транскрипт речи из видео: «{transcript or 'пусто'}».\n\n"
                 "Оцени два независимых критерия:\n\n"
-                "1) face_match — МЯГКАЯ проверка личности:\n"
-                "   - true, если это похоже на одного и того же человека (даже примерно).\n"
-                "   - Допускаются: другой ракурс, не крупный план, лицо далеко/частично, "
-                "другая мимика, освещение, причёска, очки, макияж, качество камеры.\n"
-                "   - false ТОЛЬКО если явно другой человек, маска/чужое фото на экране, "
-                "или лица на видео совсем не видно.\n"
-                "   - При сомнении ставь true.\n\n"
+                "1) liveness_ok — проверка, что это живой человек:\n"
+                "   - true, если на кадрах видно живое человеческое лицо (можно не крупным планом).\n"
+                "   - Допускаются: другой ракурс, лицо далеко/частично, мимика, освещение, "
+                "очки, макияж, качество камеры.\n"
+                "   - false, если это маска, чужое фото/распечатка, фото или видео на экране телефона, "
+                "манекен, или лица совсем не видно.\n"
+                "   - Не сравнивай внешность ни с каким другим фото. Нам важно только, что человек живой.\n"
+                "   - При сомнении, но лицо живого человека видно — ставь true.\n\n"
                 "2) gesture_ok — ЖЁСТКАЯ проверка жеста:\n"
                 "   - true только если на хотя бы одном кадре чётко виден именно ожидаемый жест рукой.\n"
                 "   - Похожий, но другой жест, размытый/неразборчивый жест, отсутствие руки → false.\n"
                 "   - При сомнении ставь false.\n\n"
                 "Ответь строго JSON без markdown:\n"
-                '{"face_match": true/false, "gesture_ok": true/false, "reason": "кратко по-русски"}'
+                '{"liveness_ok": true/false, "gesture_ok": true/false, "reason": "кратко по-русски"}'
             ),
-        },
-        {
-            "type": "image_url",
-            "image_url": {"url": _to_data_url(profile_photo), "detail": "high"},
         },
     ]
     for frame in frames:
@@ -218,8 +215,9 @@ async def analyze_face_and_gesture(
             {
                 "role": "system",
                 "content": (
-                    "Ты модератор верификации. К лицу относись мягко (ракурс и крупность не важны). "
-                    "К жесту — строго. Отвечай только JSON."
+                    "Ты модератор liveness-проверки. Не сравнивай лицо с фото анкеты. "
+                    "Нужно убедиться, что в кружке живой человек, а не фото/экран/маска. "
+                    "К жесту относись строго. Отвечай только JSON."
                 ),
             },
             {"role": "user", "content": content},
@@ -235,25 +233,24 @@ async def analyze_face_and_gesture(
         logger.warning("Невалидный JSON от Vision: %s", raw)
         return False, False, "Не удалось разобрать ответ проверки"
 
-    face_match = bool(data.get("face_match"))
+    liveness_ok = bool(data.get("liveness_ok"))
     gesture_ok = bool(data.get("gesture_ok"))
     reason = str(data.get("reason") or "").strip() or "Проверка завершена"
-    return face_match, gesture_ok, reason
+    return liveness_ok, gesture_ok, reason
 
 
 async def verify_video_note(
     bot: Bot,
     *,
-    photo_file_id: str,
     video_file_id: str,
     expected_code: str,
     expected_gesture: str,
 ) -> VerificationCheckResult:
-    """Полная AI-проверка кружка: лицо, жест, произнесённый код."""
+    """AI-проверка кружка: живой человек, жест, произнесённый код."""
     if not settings.openai_api_key:
         return VerificationCheckResult(
             passed=False,
-            face_match=False,
+            liveness_ok=False,
             gesture_ok=False,
             code_ok=False,
             transcript="",
@@ -264,13 +261,9 @@ async def verify_video_note(
 
     with tempfile.TemporaryDirectory(prefix="luma_verify_") as tmp:
         tmp_path = Path(tmp)
-        photo_path = tmp_path / "photo.jpg"
         video_path = tmp_path / "video.mp4"
 
-        await download_telegram_file(bot, photo_file_id, photo_path)
         await download_telegram_file(bot, video_file_id, video_path)
-
-        profile_photo = photo_path.read_bytes()
         frames = extract_video_frames(video_path)
 
         try:
@@ -282,9 +275,8 @@ async def verify_video_note(
         code_ok = code_mentioned(transcript, expected_code) if transcript else False
 
         try:
-            face_match, gesture_ok, reason = await analyze_face_and_gesture(
+            liveness_ok, gesture_ok, reason = await analyze_liveness_and_gesture(
                 client,
-                profile_photo=profile_photo,
                 frames=frames,
                 expected_gesture=expected_gesture,
                 expected_code=expected_code,
@@ -294,7 +286,7 @@ async def verify_video_note(
             logger.exception("Vision analysis failed")
             return VerificationCheckResult(
                 passed=False,
-                face_match=False,
+                liveness_ok=False,
                 gesture_ok=False,
                 code_ok=code_ok,
                 transcript=transcript,
@@ -304,13 +296,13 @@ async def verify_video_note(
         if not transcript:
             reason = f"{reason} Не удалось распознать речь — произнеси код громче и чётче."
 
-        passed = face_match and gesture_ok and code_ok
+        passed = liveness_ok and gesture_ok and code_ok
         if passed:
-            reason = "Лицо совпадает, жест верный, код произнесён."
+            reason = "Живой человек, жест верный, код произнесён."
         else:
             parts = []
-            if not face_match:
-                parts.append("лицо не совпадает с фото анкеты")
+            if not liveness_ok:
+                parts.append("не видно живого человека")
             if not gesture_ok:
                 parts.append("жест не распознан или неверный")
             if not code_ok:
@@ -319,7 +311,7 @@ async def verify_video_note(
 
         return VerificationCheckResult(
             passed=passed,
-            face_match=face_match,
+            liveness_ok=liveness_ok,
             gesture_ok=gesture_ok,
             code_ok=code_ok,
             transcript=transcript,

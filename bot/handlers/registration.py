@@ -15,6 +15,7 @@ from bot.keyboards.keyboards import (
     next_step_kb,
     rules_agree_kb,
     seeking_kb,
+    skip_optional_kb,
     visible_kb,
 )
 from bot.handlers.geo_city_flow import (
@@ -43,6 +44,7 @@ from bot.utils.messaging import (
     ensure_reply_menu,
     replace_ui,
     safe_delete,
+    send_profile_media,
     send_ui,
     strip_inline_keyboard,
 )
@@ -50,7 +52,8 @@ from config import get_settings
 from models import Goal, Referral, User
 from services.blogger_service import record_blogger_view
 from services.geo_service import apply_geo_to_user
-from services.luma_ai_service import moderate_telegram_photo, moderate_text
+from services.luma_ai_service import moderate_text
+from services.profile_media import consume_profile_media_message, get_profile_media, set_profile_media
 from services.referral_service import process_referral_on_profile_complete
 
 router = Router()
@@ -61,12 +64,13 @@ LANG_BY_LABEL = {v: k for k, v in LANG_LABELS.items()}
 
 async def _send_profile_preview(message: Message, user: User, redis: Redis | None = None) -> None:
     text = f"{t(user, 'REG_PREVIEW_HEADER')}\n\n{format_own_profile(user)}"
-    await replace_ui(
+    await send_profile_media(
         message,
         text,
-        photo_file_id=user.photo_file_id,
+        get_profile_media(user),
         reply_markup=next_step_kb(lang_of(user)),
         redis=redis,
+        edit=False,
     )
 
 
@@ -179,22 +183,27 @@ async def reg_name(message: Message, state: FSMContext, user: User, redis: Redis
     await replace_ui(message, t(user, "REG_ASK_PHOTO", name=user.display_name), redis=redis)
 
 
-@router.message(Registration.photo, F.photo)
+@router.message(Registration.photo, F.photo | F.video | F.video_note)
 async def reg_photo(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-    file_id = message.photo[-1].file_id
-    ok, reason = await moderate_telegram_photo(message.bot, file_id)
-    if not ok:
-        await safe_delete(message)
+    accepted, err_key, warning = await consume_profile_media_message(message, user, redis)
+    if accepted is None:
+        return
+    if err_key:
+        if err_key == "MODERATION_BLOCKED":
+            body = t(user, "MODERATION_BLOCKED", reason=warning or "нарушение")
+        else:
+            body = t(user, err_key)
         await send_ui(
             message,
-            f"{t(user, 'MODERATION_BLOCKED', reason=reason)}\n\n{t(user, 'REG_ASK_PHOTO', name=user.display_name or '')}",
+            f"{body}\n\n{t(user, 'REG_ASK_PHOTO', name=user.display_name or '')}",
             redis=redis,
         )
         return
-    user.photo_file_id = file_id
+    set_profile_media(user, accepted)
     await state.set_state(Registration.gender)
-    await safe_delete(message)
     await replace_ui(message, t(user, "REG_ASK_GENDER"), reply_markup=gender_kb(lang_of(user)), redis=redis)
+    if warning:
+        await message.answer(t(user, warning))
 
 
 @router.message(Registration.gender, F.text)
@@ -298,7 +307,12 @@ async def reg_city_confirm(callback: CallbackQuery, state: FSMContext, user: Use
         await maybe_enqueue_regeocode("user", user.id, True)
     await state.set_state(Registration.bio)
     await strip_inline_keyboard(callback.message)
-    await send_ui(callback.message, t(user, "REG_ASK_BIO"), redis=redis)
+    await send_ui(
+        callback.message,
+        t(user, "REG_ASK_BIO"),
+        reply_markup=skip_optional_kb(lang_of(user), "reg:skip_bio"),
+        redis=redis,
+    )
     await callback.answer()
 
 
@@ -310,13 +324,23 @@ async def reg_bio(message: Message, state: FSMContext, user: User, redis: Redis)
         await send_ui(
             message,
             f"{t(user, 'MODERATION_BLOCKED', reason=reason)}\n\n{t(user, 'REG_ASK_BIO')}",
+            reply_markup=skip_optional_kb(lang_of(user), "reg:skip_bio"),
             redis=redis,
         )
         return
-    user.bio = message.text.strip()[:1000]
+    user.bio = message.text.strip()[:1000] or None
     await state.set_state(Registration.goal_title)
     await safe_delete(message)
     await replace_ui(message, t(user, "REG_ASK_GOAL"), redis=redis)
+
+
+@router.callback_query(Registration.bio, F.data == "reg:skip_bio")
+async def reg_bio_skip(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
+    user.bio = None
+    await state.set_state(Registration.goal_title)
+    await strip_inline_keyboard(callback.message)
+    await send_ui(callback.message, t(user, "REG_ASK_GOAL"), redis=redis)
+    await callback.answer()
 
 
 @router.message(Registration.goal_title, F.text)

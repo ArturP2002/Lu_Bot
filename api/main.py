@@ -76,6 +76,12 @@ def _user_brief(u: User | None) -> dict | None:
     }
 
 
+def _user_media_list(u: User) -> list[dict]:
+    from services.profile_media import get_profile_media
+
+    return [{"type": item.kind, "file_id": item.file_id} for item in get_profile_media(u)]
+
+
 def _event_payload(e: Event, organizer: User | None) -> dict:
     return {
         "id": e.id,
@@ -259,6 +265,7 @@ async def admin_user_detail(
         "bio": u.bio,
         "contact_phone": u.contact_phone,
         "photo_file_id": u.photo_file_id,
+        "media": _user_media_list(u),
         "profile_completed": u.profile_completed,
         "sparks_balance": u.sparks_balance,
         "rating_avg": u.rating_avg,

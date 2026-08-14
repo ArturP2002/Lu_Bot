@@ -1028,13 +1028,17 @@ async def ask_luma(session: AsyncSession, redis: Redis, user, message: str) -> s
 BLOCK_CATEGORIES = ("porn", "drugs", "qr", "ads", "fraud", "nude", "violence", "hate", "minors")
 
 TEXT_MODERATION_PROMPT = (
-    "Ты модератор описания анкеты dating/тусовки бота. "
-    "Запрещены: порно и интим-услуги/эскорт, наркотики, мошенничество, "
-    "навязчивая реклама и промо каналов/ссылок, QR/скам-приглашения, "
-    "оружие и призывы к насилию, разжигание ненависти, "
-    "любой контент с несовершеннолетними, поиск секса за деньги. "
-    "Обычное описание хобби, знакомств и тусовок — разрешено. "
-    'Ответь строго JSON: {"ok": true/false, "reason": "краткая категория на русском или пусто"}'
+    "Ты модератор описания анкеты dating/тусовки бота. Режим ОЧЕНЬ МЯГКИЙ.\n"
+    "Разрешено почти всё: шутки, мат, сленг, одно слово, эмодзи, бессмыслица, "
+    "поиск отношений или секса без оплаты, любая самопрезентация.\n\n"
+    "Блокируй ТОЛЬКО если нарушение ОЧЕВИДНОЕ:\n"
+    "1) порно, продажа интим-услуг, эскорт, реклама OnlyFans;\n"
+    "2) наркотики: продажа, закладки, названия веществ со сбытом;\n"
+    "3) явная реклама: «подписывайся на канал», промокоды, продажа товаров, "
+    "ссылки t.me/ с призывом подписаться.\n\n"
+    "Не блокируй за грубость, сексуальность без продажи, политику, шутки, "
+    "короткий или «неинформативный» текст. При малейшем сомнении — ok=true.\n"
+    'Ответь строго JSON: {"ok": true/false, "reason": "реклама|порно|наркотики или пусто"}'
 )
 
 PHOTO_MODERATION_PROMPT = (
@@ -1111,21 +1115,29 @@ def _decide_photo_moderation(data: dict) -> tuple[bool, str]:
     return False, reason or "нарушение"
 
 
+_HARD_TEXT_REASONS = ("реклам", "ads", "порно", "porn", "наркот", "drug", "эскорт", "onlyfans", "интим услуг")
+
+
+def _is_hard_text_block(reason: str) -> bool:
+    lower = reason.lower()
+    return any(token in lower for token in _HARD_TEXT_REASONS)
+
+
 async def moderate_text(text: str) -> tuple[bool, str]:
-    """Проверка текста. True = ок, False = заблокировано + причина."""
+    """Проверка текста. True = ок, False = заблокировано + причина.
+
+    Блокируем только очевидные рекламу, порно и наркотики. Остальное пропускаем.
+    """
     if not text or not text.strip():
         return True, ""
 
     lower = text.lower()
     drug_words = ("закладк", "мефедрон", "кокаин", "героин", "mdma", "амфетамин", "спайс")
     porn_words = ("onlyfans", "секс за", "интим услуг", "эскорт")
-    fraud_words = ("гарант схем", "инвест сигнал", "100% доход", "развод на")
     if any(w in lower for w in drug_words):
         return False, "наркотики"
     if any(w in lower for w in porn_words):
         return False, "порно"
-    if any(w in lower for w in fraud_words):
-        return False, "мошенничество"
     if "t.me/" in lower and any(w in lower for w in ("подписывай", "канал", "реклама", "промокод")):
         return False, "реклама"
 
@@ -1141,13 +1153,17 @@ async def moderate_text(text: str) -> tuple[bool, str]:
                 {"role": "user", "content": text[:2000]},
             ],
             max_tokens=80,
+            temperature=0,
             response_format={"type": "json_object"},
         )
         raw = response.choices[0].message.content or "{}"
         data = json.loads(raw)
         if data.get("ok", True):
             return True, ""
-        return False, str(data.get("reason") or "нарушение")
+        reason = str(data.get("reason") or "").strip()
+        if _is_hard_text_block(reason):
+            return False, reason or "нарушение"
+        return True, ""
     except Exception as e:
         logger.warning("moderate_text failed: %s", e)
         return True, ""
@@ -1205,6 +1221,26 @@ async def moderate_telegram_photo(bot, file_id: str, caption: str | None = None)
     if not file_bytes:
         return True, ""
     return await moderate_photo(file_bytes=file_bytes, caption=caption)
+
+
+async def moderate_telegram_video(bot, file_id: str) -> tuple[bool, str]:
+    """Проверка видео анкеты: кадр из ролика через ту же модерацию, что и фото."""
+    import tempfile
+    from pathlib import Path
+
+    from services.verification_service import download_telegram_file, extract_video_frames
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="luma_media_") as tmp:
+            video_path = Path(tmp) / "video.mp4"
+            await download_telegram_file(bot, file_id, video_path)
+            frames = extract_video_frames(video_path, max_frames=2)
+    except Exception as e:
+        logger.warning("moderate_telegram_video failed: %s", e)
+        return True, ""
+    if not frames:
+        return True, ""
+    return await moderate_photo(file_bytes=frames[0])
 
 
 async def moderate_video(caption: str | None = None) -> tuple[bool, str]:

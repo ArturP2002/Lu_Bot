@@ -73,6 +73,36 @@ function ProfilePhoto({ fileId }: { fileId: string }) {
   return <img className="media-preview profile-photo" src={src} alt="Фото анкеты" />
 }
 
+function ProfileVideo({ fileId }: { fileId: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    let revoked: string | null = null
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await fetch(mediaUrl(fileId), { headers: mediaHeaders() })
+        if (!res.ok) throw new Error('fail')
+        const blob = await res.blob()
+        if (cancelled) return
+        const url = URL.createObjectURL(blob)
+        revoked = url
+        setSrc(url)
+      } catch {
+        /* ignore */
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+      if (revoked) URL.revokeObjectURL(revoked)
+    }
+  }, [fileId])
+
+  if (!src) return null
+  return <video className="media-preview profile-photo" src={src} controls playsInline />
+}
+
 interface Props {
   userId: number
   toast: (msg: string, type?: 'success' | 'error') => void
@@ -140,11 +170,20 @@ export function UserProfile({ userId, toast, onBack, backLabel = '← Назад
         {detail.warning_count > 0 && <span className="badge warning">⚠ {detail.warning_count}</span>}
       </div>
 
-      {detail.photo_file_id && (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <ProfilePhoto fileId={detail.photo_file_id} />
+      {(detail.media && detail.media.length > 0
+        ? detail.media
+        : detail.photo_file_id
+          ? [{ type: 'photo' as const, file_id: detail.photo_file_id }]
+          : []
+      ).map((item) => (
+        <div key={item.file_id} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          {item.type === 'video' ? (
+            <ProfileVideo fileId={item.file_id} />
+          ) : (
+            <ProfilePhoto fileId={item.file_id} />
+          )}
         </div>
-      )}
+      ))}
 
       <div className="card">
         <DetailRow label="Баланс" value={<span className="hl mono">{detail.sparks_balance} искр</span>} />
