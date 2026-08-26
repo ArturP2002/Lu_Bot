@@ -172,6 +172,8 @@ async def rate_like(callback: CallbackQuery, user: User, session: AsyncSession, 
         return
 
     is_new = await _create_like_if_needed(session, user.id, target_id)
+    # Скип — чтобы анкета не вернулась до суточного сброса (лайк в БД остаётся)
+    await record_profile_skip(session, user.id, target_id)
     if is_new and await check_mutual_like(session, user, target):
         await notify_match(callback.bot, user, target)
         await notify_match(callback.bot, target, user)
@@ -238,6 +240,8 @@ async def rate_comment_save(
         return
 
     is_new = await _create_like_if_needed(session, user.id, target_id, comment=message.text)
+    # Скип — чтобы анкета не вернулась до суточного сброса (лайк в БД остаётся)
+    await record_profile_skip(session, user.id, target_id)
     if is_new and await check_mutual_like(session, user, target):
         await notify_match(message.bot, user, target)
         await notify_match(message.bot, target, user)

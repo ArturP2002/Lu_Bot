@@ -189,7 +189,7 @@ class Like(Base):
 
 
 class ProfileSkip(Base):
-    """Пропуск анкеты в ленте «Оценивать» — больше не показывать."""
+    """Просмотр анкеты в ленте «Оценивать» (скип или лайк) — скрыть до сброса ленты."""
 
     __tablename__ = "profile_skips"
     __table_args__ = (UniqueConstraint("from_user_id", "to_user_id", name="uq_profile_skip_pair"),)

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from config import get_settings
-from models import Like, ProfileSkip, Rating, User
+from models import ProfileSkip, Rating, User
 
 settings = get_settings()
 
@@ -40,7 +40,11 @@ def mark_feed_exhausted(user: User) -> bool:
 
 
 async def reset_exhausted_feed_skips(session: AsyncSession) -> int:
-    """Очистить скипы у пользователей с feed_exhausted и снять флаг. Возвращает число пользователей."""
+    """Очистить скипы у пользователей с feed_exhausted и снять флаг.
+
+    После сброса снова показываются и пропущенные, и ранее лайкнутые анкеты
+    (лайки в таблице likes не удаляются). Возвращает число пользователей.
+    """
     result = await session.execute(select(User.id).where(User.feed_exhausted.is_(True)))
     user_ids = list(result.scalars().all())
     if not user_ids:
@@ -63,7 +67,7 @@ async def get_next_profile(
 ) -> User | None:
     """Получить следующую анкету для просмотра.
 
-    Лайкнутые и пропущенные анкеты в ленту больше не попадают.
+    Просмотренные (пропуск или лайк) анкеты скрыты через ProfileSkip до сброса ленты.
     При geo_search_enabled + coords у зрителя:
       сортировка — сначала свой город/близко, затем по возрастанию расстояния
       (другие города тоже). Анкетам без coords подставляется центр города из city.
@@ -97,12 +101,6 @@ async def get_next_profile(
 
     geo_enabled = await get_setting_bool(session, "geo_search_enabled")
 
-    liked = exists(
-        select(Like.id).where(
-            Like.from_user_id == viewer.id,
-            Like.to_user_id == User.id,
-        )
-    )
     skipped = exists(
         select(ProfileSkip.id).where(
             ProfileSkip.from_user_id == viewer.id,
@@ -115,7 +113,6 @@ async def get_next_profile(
         User.profile_completed.is_(True),
         User.disabled.is_(False),
         User.is_banned.is_(False),
-        ~liked,
         ~skipped,
     ]
     if exclude_ids:
