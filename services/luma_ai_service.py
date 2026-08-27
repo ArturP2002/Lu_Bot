@@ -16,7 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from models import Event, EventStatus, User
-from services.name_search import expand_name_variants, extract_names_from_query
+from services.name_search import (
+    expand_name_variants,
+    extract_names_from_query,
+    filter_person_names,
+    is_gender_or_generic_token,
+)
 from services.user_service import is_premium
 
 logger = logging.getLogger(__name__)
@@ -24,8 +29,12 @@ settings = get_settings()
 
 STOPWORDS = {
     "найди", "найти", "поиск", "поищи", "покажи", "хочу", "ищу", "ищем",
-    "человек", "человека", "людей", "люди", "кто", "кого", "мне", "для",
-    "девушку", "парня", "девушки", "парни", "женщину", "мужчину", "женщины", "мужчины",
+    "человек", "человека", "человеку", "человеком", "людей", "люди", "людям",
+    "кто", "кого", "мне", "для", "персона", "персону",
+    "девушку", "девушка", "девушки", "девушек", "девушками",
+    "парня", "парень", "парни", "парней", "парнями",
+    "женщину", "женщина", "женщины", "женщин",
+    "мужчину", "мужчина", "мужчины", "мужчин",
     "город", "города", "городе", "года", "лет", "возраст", "есть", "тут",
     "рядом", "около", "пожалуйста", "можешь", "можно", "нужно", "надо", "какой",
     "какая", "какие", "этот", "эта", "эти", "там", "сюда", "или", "либо",
@@ -33,14 +42,21 @@ STOPWORDS = {
     "мероприятия", "встреча", "встречи", "вечерин", "вечеринка", "вечеринки", "party",
     "ивент", "ивенты", "событие", "события", "все", "весь", "вся", "всех", "любой",
     "любая", "любые", "где", "когда", "что", "как", "про", "просьба", "помощ",
-    "помощник", "luma", "лума", "бот", "анкет", "анкета", "анкеты", "профиль",
+    "помощник", "luma", "лума", "лу", "бот", "анкет", "анкета", "анкеты", "профиль",
     "сегодня", "завтра", "вечером", "днем", "утром", "ночью", "сейчас", "скоро",
     "интересн", "интересные", "интересный", "хорош", "хорошие", "новый", "новые",
     "свободн", "открыт", "активн", "любит", "люблю", "нравится", "хочет",
+    "girl", "girls", "guys", "boys", "people", "person", "female", "male",
 }
 
-GENDER_MALE = ("парн", "мужчин", "парень", "мужчина", "хлопц", "паца", "boys", "guys", "male")
-GENDER_FEMALE = ("девуш", "женщин", "девоч", "дівч", "қыз", "girl", "women", "female", "леди")
+GENDER_MALE = (
+    "парн", "мужчин", "парень", "мужчина", "хлопц", "паца",
+    "boys", "guys", "male", "парней", "парня",
+)
+GENDER_FEMALE = (
+    "девуш", "женщин", "девоч", "дівч", "қыз",
+    "girl", "women", "female", "леди", "девушек", "девушку", "девушки",
+)
 NEAR_WORDS = ("рядом", "около", "мой город", "в моём городе", "в моем городе", "поруч", "жақын", "near")
 ANY_CITY_WORDS = ("везде", "любой город", "в другом", "других городах", "без города", "все города")
 
@@ -227,7 +243,7 @@ def parse_people_filters_heuristic(query: str, viewer: User) -> PeopleFilters:
     any_city = any(w in q for w in ANY_CITY_WORDS)
     age_min, age_max = _extract_age(q)
     gender = _extract_gender(q)
-    names = extract_names_from_query(query)
+    names = filter_person_names(extract_names_from_query(query))
     keywords = _extract_keywords(query)
     # убрать из keywords токены города и имени
     name_stems = {stem for n in names for stem in expand_name_variants(n)}
@@ -252,6 +268,7 @@ def parse_people_filters_heuristic(query: str, viewer: User) -> PeopleFilters:
         names=names,
         verified_only="вериф" in q or "проверен" in q,
         prefer_viewer_city=prefer_viewer,
+        # Жёсткий матч только по настоящему личному имени, не по «девушек»
         require_match=bool(names),
     )
 
@@ -362,8 +379,12 @@ async def _ai_parse_filters(query: str, viewer: User, kind: str) -> dict | None:
         client = AsyncOpenAI(api_key=settings.openai_api_key)
         if kind == "people":
             extra_hint = (
-                "names — личные имена людей из запроса (Ксюша, Диана, Саша); "
-                "keywords — только интересы/тема (йога, спорт), без имён и стоп-слов. "
+                "names — ТОЛЬКО личные имена людей (Ксюша, Диана, Саша, Дина). "
+                "НИКОГДА не клади в names слова пола/категории: девушка, девушек, парень, "
+                "парней, человек, человека, люди, girl, boys и т.п. "
+                "Запрос «найди девушек» → names=[], gender=female. "
+                "Запрос «человека» / «людей» → names=[], gender=null (общий просмотр). "
+                "keywords — только интересы/тема (йога, спорт), без имён, пола и стоп-слов. "
             )
         else:
             extra_hint = (
@@ -406,13 +427,30 @@ async def resolve_people_filters(session: AsyncSession, viewer: User, query: str
     city = None if any_city else (data.get("city") or base.city)
     gender = data.get("gender") if data.get("gender") in ("male", "female") else base.gender
     names_raw = data.get("names") if isinstance(data.get("names"), list) else base.names
-    names = [str(n).lower().strip() for n in (names_raw or []) if str(n).strip() and not _is_stopword(str(n))]
+    names = filter_person_names(
+        [str(n).lower().strip() for n in (names_raw or []) if str(n).strip()]
+    )
     if not names:
         names = list(base.names)
-    keywords = data.get("keywords") if isinstance(data.get("keywords"), list) else base.keywords
-    keywords = [str(k).lower().strip() for k in keywords if str(k).strip() and not _is_stopword(str(k))]
+
+    raw_kw = data.get("keywords") if isinstance(data.get("keywords"), list) else base.keywords
     name_stems = {stem for n in names for stem in expand_name_variants(n)}
-    keywords = [k for k in keywords if k not in name_stems]
+    keywords: list[str] = []
+    for k in raw_kw or []:
+        token = str(k).lower().strip()
+        if not token or _is_stopword(token) or is_gender_or_generic_token(token):
+            continue
+        if token in name_stems:
+            continue
+        if token not in keywords:
+            keywords.append(token)
+    if not keywords and not names:
+        keywords = [k for k in base.keywords if not is_gender_or_generic_token(k)]
+
+    # LLM мог вернуть gender только в names — добираем пол из исходного запроса
+    if gender is None:
+        gender = base.gender or _extract_gender(query)
+
     return PeopleFilters(
         city=str(city).strip() if city else None,
         gender=gender,
@@ -422,7 +460,7 @@ async def resolve_people_filters(session: AsyncSession, viewer: User, query: str
         names=names[:4],
         verified_only=bool(data.get("verified_only")) or base.verified_only,
         prefer_viewer_city=not any_city and not city,
-        require_match=bool(names) or base.require_match,
+        require_match=bool(names),
     )
 
 
@@ -806,8 +844,10 @@ _TOOLS = [
             "name": "search_people_db",
             "description": (
                 "Поиск анкет людей в БД LUMA. "
-                "Для поиска по имени передай names (Ксюша, Диана). "
-                "keywords — только интересы/тема, не имена."
+                "«найди девушек» → gender=female, names=[]. "
+                "«человека»/«людей» → names=[], без жёсткого имени (общий просмотр). "
+                "names — только личные имена (Ксюша, Диана), никогда пол или «человек». "
+                "keywords — только интересы/тема, не имена и не пол."
             ),
             "parameters": {
                 "type": "object",
@@ -819,7 +859,7 @@ _TOOLS = [
                     "names": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Личные имена из запроса",
+                        "description": "Личные имена людей (не девушка/человек/парень)",
                     },
                     "keywords": {
                         "type": "array",
@@ -864,32 +904,25 @@ _TOOLS = [
 
 async def _run_tool(session: AsyncSession, viewer: User, name: str, args: dict) -> str:
     if name == "search_people_db":
-        from services.name_search import DIMINUTIVE_TO_CANON, stem_name
-
         any_city = bool(args.get("any_city"))
         city = None if any_city else args.get("city")
-        names = [str(k) for k in (args.get("names") or []) if str(k).strip()][:4]
-        keywords = [str(k) for k in (args.get("keywords") or []) if str(k).strip()][:6]
+        names = filter_person_names([str(k) for k in (args.get("names") or []) if str(k).strip()])[:4]
+        keywords_raw = [str(k) for k in (args.get("keywords") or []) if str(k).strip()][:6]
+        keywords = [
+            k for k in keywords_raw
+            if not _is_stopword(k) and not is_gender_or_generic_token(k)
+        ]
 
-        def _looks_like_name(token: str) -> bool:
-            key = token.lower().replace("ё", "е")
-            st = stem_name(key)
-            return (
-                key in DIMINUTIVE_TO_CANON
-                or st in DIMINUTIVE_TO_CANON
-                or (st + "а") in DIMINUTIVE_TO_CANON
-                or (st + "я") in DIMINUTIVE_TO_CANON
-            )
+        # Если LLM положил имя в keywords — перенесём в names
+        moved = filter_person_names(keywords)
+        if not names and moved:
+            names = moved[:4]
+            keywords = [k for k in keywords if k.lower() not in {n.lower() for n in names}]
 
-        if not names and keywords:
-            moved = [k for k in keywords if _looks_like_name(k)]
-            if moved:
-                names = moved
-                keywords = [k for k in keywords if k not in moved]
-
+        gender = args.get("gender") if args.get("gender") in ("male", "female") else None
         f = PeopleFilters(
             city=str(city).strip() if city else None,
-            gender=args.get("gender") if args.get("gender") in ("male", "female") else None,
+            gender=gender,
             age_min=args.get("age_min"),
             age_max=args.get("age_max"),
             keywords=keywords,
@@ -955,9 +988,13 @@ async def ask_luma(session: AsyncSession, redis: Redis, user, message: str) -> s
         "search_people_db / search_events_db — они ходят в реальную БД. "
         f"Город пользователя: {user.city or 'неизвестен'}. "
         "Опирайся только на данные инструментов. Не выдумывай имена, возраст, города, тусовки. "
-        "Если искали человека по имени и БД пуста — честно скажи, что не нашла, "
+        "«Найди девушек/парней» — это фильтр пола (gender), НЕ поиск по имени. "
+        "«Человека/людей/анкету» — общий просмотр анкет, names не передавай. "
+        "Если искали человека по личному имени и БД пуста — честно скажи, что не нашла, "
         "и предложи одно уточнение (город или полное имя). "
         "Не подменяй запрошенное имя другими людьми из выдачи. "
+        "Если общий просмотр или фильтр пола вернул людей — кратко опиши находки, "
+        "не пиши «не нашла человека». "
         "Если искали тусовку по теме и БД пуста — честно скажи, что таких нет, "
         "и предложи уточнить тему или город. Не подменяй тему другими мероприятиями. "
         "При находках людей кратко: имя, возраст, город и одна деталь из bio. "

@@ -116,6 +116,9 @@ _RAW_DIMINUTIVES: dict[str, tuple[str, ...]] = {
     "аня": ("анна",),
     "анюта": ("анна",),
     "марина": ("марина",),
+    "дина": ("дина",),
+    "дину": ("дина",),
+    "дини": ("дина",),
 }
 
 DIMINUTIVE_TO_CANON: dict[str, tuple[str, ...]] = {
@@ -140,6 +143,78 @@ _NAME_LOOKUP_RE = re.compile(
     r"([а-яёa-z]{2,}(?:\s+[а-яёa-z]{2,})?)",
     re.I,
 )
+
+# Слова, которые НИКОГДА не являются личным именем (род/категория/запрос)
+_NAME_REJECT_EXACT = {
+    "человек", "человека", "человеку", "человеком", "человеке", "человеки",
+    "людей", "люди", "людям", "людьми", "человечек", "персона", "персону",
+    "кого", "кто", "когонибудь", "ктонибудь", "когото", "ктото",
+    "анкета", "анкету", "анкеты", "профиль", "профили", "юзер", "юзера",
+    "пользователь", "пользователя", "участник", "участника", "участницу",
+    "девушка", "девушку", "девушки", "девушек", "девушкой", "девушками",
+    "парень", "парня", "парни", "парней", "парнем", "парнями",
+    "женщина", "женщину", "женщины", "женщин", "женщиной",
+    "мужчина", "мужчину", "мужчины", "мужчин", "мужчиной",
+    "девочка", "девочку", "девочки", "мальчика", "мальчики",
+    "леди", "дам", "дама", "даму", "пацаны", "пацана", "хлопцы", "хлопца",
+    "girl", "girls", "guy", "guys", "boy", "boys", "woman", "women",
+    "man", "men", "female", "male", "people", "person", "persons",
+    "все", "всех", "весь", "вся", "любой", "любая", "любые", "рядом",
+    "москва", "москве", "питер", "спб", "город", "города", "городе",
+}
+
+_GENDER_STEMS = (
+    "девуш", "парн", "мужчин", "женщин", "девоч", "мальчик", "хлопц", "паца",
+    "girl", "women", "woman", "boys", "guys", "female", "male", "леди",
+)
+
+_GENERIC_STEMS = (
+    "человек", "люд", "персон", "анкет", "профил", "пользоват", "участник",
+    "people", "person",
+)
+
+
+def is_gender_or_generic_token(token: str) -> bool:
+    """Пол / «человек» / категория — не имя и не интерес."""
+    w = token.lower().strip().replace("ё", "е")
+    if not w:
+        return True
+    if w in _NAME_REJECT_EXACT:
+        return True
+    if any(w.startswith(s) for s in _GENDER_STEMS if len(s) >= 4):
+        return True
+    if any(w.startswith(s) or s.startswith(w) for s in _GENERIC_STEMS if len(s) >= 4):
+        return True
+    return False
+
+
+def is_plausible_person_name(token: str) -> bool:
+    """True только если токен похож на личное имя, а не на «девушек»/«человека»."""
+    w = token.lower().strip().replace("ё", "е")
+    if len(w) < 2:
+        return False
+    if is_gender_or_generic_token(w):
+        return False
+    # Чистый интерес / тема — не имя
+    interest = (
+        "йог", "спорт", "музык", "кино", "игр", "тусов", "встреч", "фото",
+        "танц", "путеше", "книг", "работ", "учеб", "универ",
+    )
+    if any(m in w for m in interest):
+        return False
+    return True
+
+
+def filter_person_names(names: list[str] | None) -> list[str]:
+    """Оставляет только правдоподобные личные имена."""
+    out: list[str] = []
+    for raw in names or []:
+        token = str(raw).lower().strip().replace("ё", "е")
+        if not token or not is_plausible_person_name(token):
+            continue
+        if token not in out:
+            out.append(token)
+    return out
 
 
 def stem_name(token: str) -> str:
@@ -189,17 +264,23 @@ def extract_names_from_query(query: str) -> list[str]:
         # отрезать хвост «в Москве» и т.п.
         token = re.split(r"\s+(?:в|во|из|из\s+города)\s+", token, maxsplit=1, flags=re.I)[0]
         parts = [p for p in re.findall(r"[а-яёa-z]{2,}", token.lower(), re.I) if len(p) >= 2]
-        if parts:
+        if parts and is_plausible_person_name(parts[0]):
             # Берём первое слово как имя (Ксюшу / Ксению Иванову → Ксюшу)
             return [parts[0]]
+        # «найди девушек» / «найди человека» — не имя; ищем дальше по фразе
 
     # Запрос из одного-двух слов без явных «интересных» маркеров
     words = re.findall(r"[а-яёa-z]{3,}", q.lower(), re.I)
     interest_markers = ("любит", "йог", "спорт", "музык", "кино", "игр", "тусов", "встреч")
     if words and not any(any(m in w for m in interest_markers) for w in words):
         # «Ксюша», «Ксюшу пожалуйста»
-        stop = {"пожалуйста", "можешь", "найти", "найди", "покажи", "есть"}
-        candidates = [w for w in words if w not in stop]
+        stop = {
+            "пожалуйста", "можешь", "найти", "найди", "покажи", "есть", "поищи",
+            "хочу", "ищу", "ищем", "нужно", "надо", "можно",
+        }
+        candidates = [
+            w for w in words if w not in stop and is_plausible_person_name(w)
+        ]
         if len(candidates) == 1:
             return candidates
     return []
