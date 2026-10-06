@@ -47,10 +47,10 @@ def limited_menu_kb(lang: str = "ru") -> ReplyKeyboardMarkup:
 
 
 def menu_kb_for(user) -> ReplyKeyboardMarkup:
-    """Главное или ограниченное Reply-меню в зависимости от верификации."""
+    """Главное меню доступно без верификации."""
     from bot.texts.i18n import lang_of
 
-    return main_menu_kb(lang_of(user)) if getattr(user, "verified", False) else limited_menu_kb(lang_of(user))
+    return main_menu_kb(lang_of(user))
 
 
 def admin_webapp_kb(lang: str = "ru") -> InlineKeyboardMarkup:
@@ -363,7 +363,8 @@ def referral_kb(lang: str = "ru") -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text=lbl(lang, "ref_standard"), callback_data="ref:standard"),
                 InlineKeyboardButton(text=lbl(lang, "ref_blogger"), callback_data="ref:blogger"),
-            ]
+            ],
+            [InlineKeyboardButton(text=lbl(lang, "ref_leaderboard"), callback_data="ref:leaderboard")]
         ]
     )
 

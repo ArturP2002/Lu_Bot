@@ -182,7 +182,7 @@ async def ensure_reply_menu(
     from bot.texts.i18n import t
     from bot.texts.ui_labels import tx
 
-    body = tx(user, "MENU_TITLE") if getattr(user, "verified", False) else t(user, "MENU_NEED_VERIFY")
+    body = tx(user, "MENU_TITLE")
 
   try:
     sent = await message.answer(body, reply_markup=menu_kb_for(user))

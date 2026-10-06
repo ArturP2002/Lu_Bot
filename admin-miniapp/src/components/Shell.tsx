@@ -9,7 +9,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'events', label: 'Тусовки', icon: '✧' },
   { id: 'premium', label: 'Premium', icon: '★' },
   { id: 'sparks', label: 'Искры', icon: '⚡' },
-  { id: 'referrals', label: 'Рефералы', icon: '↗' },
+  { id: 'referrals', label: 'Партнерка', icon: '↗' },
   { id: 'bloggers', label: 'Блогеры', icon: '◉' },
   { id: 'broadcasts', label: 'Рассылки', icon: '✉' },
   { id: 'payments', label: 'Платежи', icon: '◇' },

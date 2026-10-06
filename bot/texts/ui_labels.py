@@ -25,6 +25,7 @@ EVENT_CATEGORIES: dict[str, dict[str, str]] = {
 }
 
 INLINE: dict[str, dict[str, str]] = {
+    "ref_leaderboard": {"ru": "Лидерборд🏆", "be": "Лідарборд🏆", "uk": "Лідерборд🏆", "kk": "Көшбасшылар🏆"},
     "prof_age": {"ru": "Изменить возраст😉", "be": "Змяніць узрост😉", "uk": "Змінити вік😉", "kk": "Жасты өзгерту😉"},
     "prof_gender": {"ru": "Выбрать пол 👫", "be": "Абраць пол 👫", "uk": "Обрати стать 👫", "kk": "Жынысты таңдау 👫"},
     "prof_photo": {"ru": "Фото / видео 📸", "be": "Фота / відэа 📸", "uk": "Фото / відео 📸", "kk": "Фото / видео 📸"},
@@ -33,7 +34,7 @@ INLINE: dict[str, dict[str, str]] = {
     "prof_premium": {"ru": "Premium👑", "be": "Premium👑", "uk": "Premium👑", "kk": "Premium👑"},
     "prof_disable": {"ru": "Отключить анкету🔇", "be": "Адключыць анкету🔇", "uk": "Вимкнути анкету🔇", "kk": "Анкетаны өшіру🔇"},
     "prof_enable": {"ru": "Включить анкету", "be": "Уключыць анкету", "uk": "Увімкнути анкету", "kk": "Анкетаны қосу"},
-    "prof_referral": {"ru": "Реферальная программа💸", "be": "Рэферальная праграма💸", "uk": "Реферальна програма💸", "kk": "Реферал бағдарламасы💸"},
+    "prof_referral": {"ru": "Партнерка💸", "be": "Партнёрка💸", "uk": "Партнерка💸", "kk": "Серіктестік💸"},
     "prof_lang": {"ru": "Язык👋🏻", "be": "Мова👋🏻", "uk": "Мова👋🏻", "kk": "Тіл👋🏻"},
     "prof_verify": {"ru": "Верификация🤵", "be": "Верыфікацыя🤵", "uk": "Верифікація🤵", "kk": "Верификация🤵"},
     "prof_withdraw": {"ru": "Вывести искры🔃", "be": "Вывесці іскры🔃", "uk": "Вивести іскри🔃", "kk": "Ұшқын шығару🔃"},
@@ -245,9 +246,9 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "EDIT_ASK_DESC": "Описание:",
         "EDIT_ASK_PHOTO": "Пришли новое фото тусовки:",
 
-        "PROFILE_OWN": "👋 Имя: {name}, {age}{premium}{verified}\n{bio}\n⚡ Искры: {sparks}\n🌟 Рейтинг: {rating}/5\n👥 Вас оценили {rated} человек\n🎉 Тусовок посетил: {attended}\n😎 Тусовок организовал: {organized}\n{goal}\nВаш пол: {gender}\nКого вы хотите оценивать: {seeking}\nКем вы хотите быть оценены: {visible}\n🌆 Город: {city}{distance}",
+        "PROFILE_OWN": "👋 Имя: {name}, {age}{premium}{verified}\n{bio}\n⚡ Искры: {sparks}\n🌟 Рейтинг: {rating}/5\n👥 Вас оценили {rated} человек\n{goal}\nВаш пол: {gender}\nКого вы хотите оценивать: {seeking}\nКем вы хотите быть оценены: {visible}\n🌆 Город: {city}{distance}",
         "PROFILE_GOAL_OWN": "⚡️Цель: {title}",
-        "PROFILE_OTHER": "{name}, {age}{badges}\n{bio}\n🌟 Рейтинг: {rating}/5 ({rated})\n🎉 Тусовок посетил: {attended}\n🥳 Тусовок организовал: {organized}\n🎯 Цель: {goal}\n🌆 Город: {city}{distance}",
+        "PROFILE_OTHER": "{name}, {age}{badges}\n{bio}\n🌟 Рейтинг: {rating}/5 ({rated})\n🎯 Цель: {goal}\n🌆 Город: {city}{distance}",
         "PROFILE_GOAL_OTHER": "{title} · {collected}/{target} (осталось {remaining}, {percent}%)",
         "EVENT_CARD": "🔥 {title}{pin}{boost}\n🏷 {category}\n📍 {city}{distance}, {address}\n🕐 {date}, {time}\n👥 {men_label}: {men_count}/{men_needed}  👩 {women_label}: {women_count}/{women_needed}\n💰 {price}{org}\n{description}",
         "EVENT_DEFAULT_CAT": "Тусовка",
@@ -403,9 +404,9 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "EDIT_ASK_DESC": "Апісанне:",
         "EDIT_ASK_PHOTO": "Дашлі новае фота:",
 
-        "PROFILE_OWN": "👋 Імя: {name}, {age}{premium}{verified}\n{bio}\n⚡ Іскры: {sparks}\n🌟 Рэйтынг: {rating}/5\n👥 Вас ацанілі {rated}\n🎉 Тусовак наведаў: {attended}\n😎 Тусовак арганізаваў: {organized}\n{goal}\nПол: {gender}\nКого ацэньваць: {seeking}\nКаму паказвацца: {visible}\n🌆 Горад: {city}{distance}",
+        "PROFILE_OWN": "👋 Імя: {name}, {age}{premium}{verified}\n{bio}\n⚡ Іскры: {sparks}\n🌟 Рэйтынг: {rating}/5\n👥 Вас ацанілі {rated}\n{goal}\nПол: {gender}\nКого ацэньваць: {seeking}\nКаму паказвацца: {visible}\n🌆 Горад: {city}{distance}",
         "PROFILE_GOAL_OWN": "⚡️Мэта: {title}",
-        "PROFILE_OTHER": "{name}, {age}{badges}\n{bio}\n🌟 Рэйтынг: {rating}/5 ({rated})\n🎉 Наведаў: {attended}\n🥳 Арганізаваў: {organized}\n🎯 Мэта: {goal}\n🌆 Горад: {city}{distance}",
+        "PROFILE_OTHER": "{name}, {age}{badges}\n{bio}\n🌟 Рэйтынг: {rating}/5 ({rated})\n🎯 Мэта: {goal}\n🌆 Горад: {city}{distance}",
         "PROFILE_GOAL_OTHER": "{title} · {collected}/{target} (засталося {remaining}, {percent}%)",
         "EVENT_CARD": "🔥 {title}{pin}{boost}\n🏷 {category}\n📍 {city}{distance}, {address}\n🕐 {date}, {time}\n👥 {men_label}: {men_count}/{men_needed}  👩 {women_label}: {women_count}/{women_needed}\n💰 {price}{org}\n{description}",
         "EVENT_DEFAULT_CAT": "Тусоўка",
@@ -557,9 +558,9 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "EDIT_ASK_DESC": "Опис:",
         "EDIT_ASK_PHOTO": "Надішли нове фото:",
 
-        "PROFILE_OWN": "👋 Імʼя: {name}, {age}{premium}{verified}\n{bio}\n⚡ Іскри: {sparks}\n🌟 Рейтинг: {rating}/5\n👥 Вас оцінили {rated}\n🎉 Відвідав тусовок: {attended}\n😎 Організував: {organized}\n{goal}\nСтать: {gender}\nКого оцінювати: {seeking}\nКому показуватися: {visible}\n🌆 Місто: {city}{distance}",
+        "PROFILE_OWN": "👋 Імʼя: {name}, {age}{premium}{verified}\n{bio}\n⚡ Іскри: {sparks}\n🌟 Рейтинг: {rating}/5\n👥 Вас оцінили {rated}\n{goal}\nСтать: {gender}\nКого оцінювати: {seeking}\nКому показуватися: {visible}\n🌆 Місто: {city}{distance}",
         "PROFILE_GOAL_OWN": "⚡️Ціль: {title}",
-        "PROFILE_OTHER": "{name}, {age}{badges}\n{bio}\n🌟 Рейтинг: {rating}/5 ({rated})\n🎉 Відвідав: {attended}\n🥳 Організував: {organized}\n🎯 Ціль: {goal}\n🌆 Місто: {city}{distance}",
+        "PROFILE_OTHER": "{name}, {age}{badges}\n{bio}\n🌟 Рейтинг: {rating}/5 ({rated})\n🎯 Ціль: {goal}\n🌆 Місто: {city}{distance}",
         "PROFILE_GOAL_OTHER": "{title} · {collected}/{target} (залишилось {remaining}, {percent}%)",
         "EVENT_CARD": "🔥 {title}{pin}{boost}\n🏷 {category}\n📍 {city}{distance}, {address}\n🕐 {date}, {time}\n👥 {men_label}: {men_count}/{men_needed}  👩 {women_label}: {women_count}/{women_needed}\n💰 {price}{org}\n{description}",
         "EVENT_DEFAULT_CAT": "Тусовка",
@@ -711,9 +712,9 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "EDIT_ASK_DESC": "Сипаттама:",
         "EDIT_ASK_PHOTO": "Жаңа фото жібер:",
 
-        "PROFILE_OWN": "👋 Аты: {name}, {age}{premium}{verified}\n{bio}\n⚡ Ұшқын: {sparks}\n🌟 Рейтинг: {rating}/5\n👥 Сізді бағалады: {rated}\n🎉 Қатысты: {attended}\n😎 Ұйымдастырды: {organized}\n{goal}\nЖынысы: {gender}\nКімді бағалау: {seeking}\nКімге көрсету: {visible}\n🌆 Қала: {city}{distance}",
+        "PROFILE_OWN": "👋 Аты: {name}, {age}{premium}{verified}\n{bio}\n⚡ Ұшқын: {sparks}\n🌟 Рейтинг: {rating}/5\n👥 Сізді бағалады: {rated}\n{goal}\nЖынысы: {gender}\nКімді бағалау: {seeking}\nКімге көрсету: {visible}\n🌆 Қала: {city}{distance}",
         "PROFILE_GOAL_OWN": "⚡️Мақсат: {title}",
-        "PROFILE_OTHER": "{name}, {age}{badges}\n{bio}\n🌟 Рейтинг: {rating}/5 ({rated})\n🎉 Қатысты: {attended}\n🥳 Ұйымдастырды: {organized}\n🎯 Мақсат: {goal}\n🌆 Қала: {city}{distance}",
+        "PROFILE_OTHER": "{name}, {age}{badges}\n{bio}\n🌟 Рейтинг: {rating}/5 ({rated})\n🎯 Мақсат: {goal}\n🌆 Қала: {city}{distance}",
         "PROFILE_GOAL_OTHER": "{title} · {collected}/{target} (қалды {remaining}, {percent}%)",
         "EVENT_CARD": "🔥 {title}{pin}{boost}\n🏷 {category}\n📍 {city}{distance}, {address}\n🕐 {date}, {time}\n👥 {men_label}: {men_count}/{men_needed}  👩 {women_label}: {women_count}/{women_needed}\n💰 {price}{org}\n{description}",
         "EVENT_DEFAULT_CAT": "Тусовка",

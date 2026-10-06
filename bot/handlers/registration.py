@@ -49,7 +49,7 @@ from bot.utils.messaging import (
     strip_inline_keyboard,
 )
 from config import get_settings
-from models import Goal, Referral, User
+from models import Referral, User
 from services.blogger_service import record_blogger_view
 from services.geo_service import apply_geo_to_user
 from services.luma_ai_service import moderate_text
@@ -90,7 +90,7 @@ async def cmd_start(
         code = payload.replace("ref_", "", 1)
         result = await session.execute(select(User).where(User.referral_code == code))
         ref_user = result.scalar_one_or_none()
-        if ref_user and ref_user.id != user.id:
+        if ref_user and ref_user.id != user.id and not user.referred_by_id and not user.profile_completed:
             user.referred_by_id = ref_user.id
             session.add(Referral(referrer_id=ref_user.id, referred_id=user.id))
             await record_blogger_view(session, ref_user)
@@ -338,50 +338,18 @@ async def reg_bio(message: Message, state: FSMContext, user: User, redis: Redis)
         )
         return
     user.bio = message.text.strip()[:1000] or None
-    await state.set_state(Registration.goal_title)
+    await state.set_state(Registration.preview)
     await safe_delete(message)
-    await replace_ui(message, t(user, "REG_ASK_GOAL"), redis=redis)
+    await _send_profile_preview(message, user, redis=redis)
 
 
 @router.callback_query(Registration.bio, F.data == "reg:skip_bio")
 async def reg_bio_skip(callback: CallbackQuery, state: FSMContext, user: User, redis: Redis) -> None:
     user.bio = None
-    await state.set_state(Registration.goal_title)
-    await strip_inline_keyboard(callback.message)
-    await send_ui(callback.message, t(user, "REG_ASK_GOAL"), redis=redis)
-    await callback.answer()
-
-
-@router.message(Registration.goal_title, F.text)
-async def reg_goal_title(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-    await state.update_data(goal_title=message.text.strip()[:255])
-    await state.set_state(Registration.goal_amount)
-    await safe_delete(message)
-    await replace_ui(message, t(user, "REG_ASK_GOAL_AMOUNT"), redis=redis)
-
-
-@router.message(Registration.goal_amount, F.text)
-async def reg_goal_amount(
-    message: Message, state: FSMContext, user: User, session: AsyncSession, redis: Redis
-) -> None:
-    if not message.text.isdigit() or int(message.text) <= 0:
-        await message.answer(t(user, "ERR_INVALID_INPUT"))
-        return
-    data = await state.get_data()
-    title = (data.get("goal_title") or "").strip()[:255] or "Цель"
-    amount = int(message.text)
-    # Повторная регистрация: цель могла остаться с прошлой попытки
-    if user.goal:
-        user.goal.title = title
-        user.goal.target_sparks = amount
-        user.goal.collected_sparks = 0
-    else:
-        session.add(Goal(user_id=user.id, title=title, target_sparks=amount))
-        await session.flush()
-        await session.refresh(user, ["goal"])
     await state.set_state(Registration.preview)
-    await safe_delete(message)
-    await _send_profile_preview(message, user, redis=redis)
+    await strip_inline_keyboard(callback.message)
+    await _send_profile_preview(callback.message, user, redis=redis)
+    await callback.answer()
 
 
 @router.callback_query(Registration.preview, F.data == "reg:next")

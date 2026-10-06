@@ -74,6 +74,8 @@ async def goal_change_amount(
         user.goal.collected_sparks = 0
     else:
         session.add(Goal(user_id=user.id, title=data["goal_title"], target_sparks=int(message.text)))
+        await session.flush()
+        await session.refresh(user, ["goal"])
     await state.clear()
     await cleanup_user_and_prompt(message, prompt_message_id=prompt_id)
     await show_goal(message, user, redis=redis)

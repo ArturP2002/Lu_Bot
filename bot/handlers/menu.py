@@ -30,7 +30,7 @@ async def send_menu(
     )
   except Exception:
     pass
-  text = tx(user, "MENU_TITLE") if user.verified else t(user, "MENU_NEED_VERIFY")
+  text = tx(user, "MENU_TITLE")
   if replace:
     await delete_previous_ui(message.bot, redis, message.chat.id)
   await ensure_reply_menu(message, user, redis, text=text, force=True)
@@ -65,13 +65,6 @@ async def menu_profile(
 @router.message(F.text.in_(all_menu_labels("rate")))
 @router.message(StateFilter("*"), F.text.in_(all_menu_labels("rate")))
 async def menu_rate(message: Message, state: FSMContext, user: User, session: AsyncSession, redis: Redis) -> None:
-  if not user.verified:
-    await state.clear()
-    await cleanup_reply_entry(message, redis)
-    await ensure_reply_menu(
-      message, user, redis, text=t(user, "MENU_NEED_VERIFY"), force=True
-    )
-    return
   from bot.handlers.luma import clear_luma_browse
   from bot.handlers.rating import show_next_profile
 
@@ -83,13 +76,6 @@ async def menu_rate(message: Message, state: FSMContext, user: User, session: As
 @router.message(F.text.in_(all_menu_labels("goals")))
 @router.message(StateFilter("*"), F.text.in_(all_menu_labels("goals")))
 async def menu_goals(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-  if not user.verified:
-    await state.clear()
-    await cleanup_reply_entry(message, redis)
-    await ensure_reply_menu(
-      message, user, redis, text=t(user, "MENU_NEED_VERIFY"), force=True
-    )
-    return
   from bot.handlers.goals import show_goal
   await _open_from_menu(message, state, user, redis)
   await show_goal(message, user, redis=redis)
@@ -98,13 +84,6 @@ async def menu_goals(message: Message, state: FSMContext, user: User, redis: Red
 @router.message(F.text.in_(all_menu_labels("events")))
 @router.message(StateFilter("*"), F.text.in_(all_menu_labels("events")))
 async def menu_events(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-  if not user.verified:
-    await state.clear()
-    await cleanup_reply_entry(message, redis)
-    await ensure_reply_menu(
-      message, user, redis, text=t(user, "MENU_NEED_VERIFY"), force=True
-    )
-    return
   from bot.handlers.events import show_events_menu
   from bot.handlers.luma import clear_luma_browse
 
@@ -116,13 +95,6 @@ async def menu_events(message: Message, state: FSMContext, user: User, redis: Re
 @router.message(F.text.in_(all_menu_labels("luma")))
 @router.message(StateFilter("*"), F.text.in_(all_menu_labels("luma")))
 async def menu_luma(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
-  if not user.verified:
-    await state.clear()
-    await cleanup_reply_entry(message, redis)
-    await ensure_reply_menu(
-      message, user, redis, text=t(user, "MENU_NEED_VERIFY"), force=True
-    )
-    return
   from bot.handlers.luma import show_luma
   await _open_from_menu(message, state, user, redis)
   await show_luma(message, user, redis=redis)

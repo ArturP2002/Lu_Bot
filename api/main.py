@@ -10,7 +10,7 @@ from urllib.parse import unquote
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -968,36 +968,47 @@ async def admin_sparks_adjust(
 
 @app.get("/admin/referrals")
 async def admin_referrals(session: AsyncSession = Depends(get_session), _=Depends(admin_auth)):
-    result = await session.execute(
-        select(User).where(User.referral_count > 0).order_by(User.referral_count.desc()).limit(200)
-    )
-    out = []
-    for u in result.scalars().all():
-        rewards = (
-            await session.execute(
-                select(ReferralReward).where(ReferralReward.user_id == u.id).order_by(ReferralReward.id.desc())
-            )
-        ).scalars().all()
-        out.append(
-            {
-                "id": u.id,
-                "display_name": u.display_name,
-                "username": u.username,
-                "telegram_id": u.telegram_id,
-                "referral_code": u.referral_code,
-                "referral_count": u.referral_count,
-                "referral_track": u.referral_track,
-                "rewards": [
-                    {
-                        "threshold": r.threshold,
-                        "reward_type": r.reward_type,
-                        "claimed_at": str(r.claimed_at) if r.claimed_at else None,
-                    }
-                    for r in rewards
-                ],
-            }
+    from services.referral_service import referral_ranking_query
+
+    ranked = referral_ranking_query().subquery()
+    result = await session.execute(select(ranked).order_by(ranked.c.rank).limit(200))
+    rows = list(result.mappings())
+    rewards_by_user = {}
+    if rows:
+        rewards = await session.scalars(
+            select(ReferralReward)
+            .where(ReferralReward.user_id.in_([row["id"] for row in rows]))
+            .order_by(ReferralReward.id.desc())
         )
+        for reward in rewards:
+            rewards_by_user.setdefault(reward.user_id, []).append({
+                "threshold": reward.threshold,
+                "reward_type": reward.reward_type,
+                "claimed_at": str(reward.claimed_at) if reward.claimed_at else None,
+            })
+    out = [dict(row, rewards=rewards_by_user.get(row["id"], [])) for row in rows]
     return out
+
+
+class ReferralLeaderboardAdjustment(BaseModel):
+    telegram_id: int = Field(gt=0)
+    bonus: int = Field(ge=0, le=1_000_000, strict=True)
+
+
+@app.patch("/admin/referrals/leaderboard")
+async def adjust_referral_leaderboard(
+    body: ReferralLeaderboardAdjustment,
+    session: AsyncSession = Depends(get_session),
+    _=Depends(admin_auth),
+):
+    user = await get_user_by_telegram_id(session, body.telegram_id)
+    if not user:
+        raise HTTPException(404, "Пользователь не найден")
+    if not user.profile_completed or user.is_banned:
+        raise HTTPException(400, "Пользователь не участвует в лидерборде")
+    user.referral_leaderboard_bonus = body.bonus
+    await session.flush()
+    return {"ok": True, "leaderboard_bonus": body.bonus}
 
 
 @app.get("/admin/bloggers")

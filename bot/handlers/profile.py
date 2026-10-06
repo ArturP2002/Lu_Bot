@@ -531,10 +531,31 @@ async def prof_disable_leave(callback: CallbackQuery, user: User, redis: Redis) 
   await callback.answer()
 
 
+async def _partner_text(session: AsyncSession, user: User) -> str:
+  from html import escape
+  from services.referral_service import get_referral_leaderboard
+
+  top, own = await get_referral_leaderboard(session, user.id)
+  lines = [t(user, "REFERRAL_INTRO"), t(user, "REFERRAL_VERIFIED_ONLY"), "", t(user, "LEADERBOARD_TITLE")]
+  for row in top:
+    name = row["display_name"] or row["username"] or t(user, "LEADERBOARD_USER", id=row["id"])
+    lines.append(f"{row['rank']}. {escape(name)} — {row['leaderboard_count']}")
+  if not top:
+    lines.append(t(user, "LEADERBOARD_EMPTY"))
+  lines.extend(["", t(user, "LEADERBOARD_OWN", rank=own["rank"] if own else "—", count=own["leaderboard_count"] if own else 0)])
+  return "\n".join(lines)
+
+
+@router.callback_query(F.data == "ref:leaderboard")
+async def ref_leaderboard(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
+  await safe_edit_text(callback.message, await _partner_text(session, user), reply_markup=referral_kb(lang_of(user)), redis=redis)
+  await callback.answer()
+
+
 @router.callback_query(F.data == "prof:referral")
-async def prof_referral(callback: CallbackQuery, user: User, redis: Redis) -> None:
+async def prof_referral(callback: CallbackQuery, user: User, session: AsyncSession, redis: Redis) -> None:
   await _replace_profile_screen(
-    callback, t(user, "REFERRAL_INTRO"), redis, reply_markup=referral_kb(lang_of(user))
+    callback, await _partner_text(session, user), redis, reply_markup=referral_kb(lang_of(user))
   )
   await callback.answer()
 

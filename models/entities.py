@@ -149,6 +149,7 @@ class User(Base):
     referred_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     referral_track: Mapped[str] = mapped_column(String(16), default=ReferralTrack.STANDARD.value)
     referral_count: Mapped[int] = mapped_column(Integer, default=0)
+    referral_leaderboard_bonus: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     free_rating_reset_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     feed_exhausted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

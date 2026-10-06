@@ -21,21 +21,30 @@ BLOGGER_UNLOCK_THRESHOLD = 25
 
 
 async def count_completed_referrals(session: AsyncSession, referrer_id: int) -> int:
-    """Рефералы с завершённой анкетой (по ТЗ — после создания анкеты)."""
+    """Реальные рефералы с заполненной анкетой и успешной верификацией."""
     result = await session.execute(
         select(func.count(Referral.id))
         .join(User, User.id == Referral.referred_id)
         .where(
             Referral.referrer_id == referrer_id,
             User.profile_completed.is_(True),
+            User.verified.is_(True),
         )
     )
     return result.scalar() or 0
 
 
 async def process_referral_on_profile_complete(session: AsyncSession, user: User) -> None:
-    """Засчитать реферала после создания анкеты."""
-    if not user.referred_by_id or not user.profile_completed:
+    """Засчитать реферала только после заполнения анкеты и верификации."""
+    if not user.referred_by_id or not user.profile_completed or not user.verified:
+        return
+
+    # Сериализуем начисления одному пригласившему: счет и награды не теряются
+    # при одновременной верификации нескольких приглашённых.
+    referrer = await session.scalar(
+        select(User).where(User.id == user.referred_by_id).with_for_update()
+    )
+    if not referrer:
         return
 
     existing = await session.execute(
@@ -52,17 +61,15 @@ async def process_referral_on_profile_complete(session: AsyncSession, user: User
     if not referral.counted_at:
         referral.counted_at = datetime.now(timezone.utc)
 
-    referrer = await session.get(User, user.referred_by_id)
-    if referrer:
-        referrer.referral_count = await count_completed_referrals(session, referrer.id)
-        from services.blogger_service import maybe_auto_unlock_blogger, maybe_reward_blogger_profiles
+    referrer.referral_count = await count_completed_referrals(session, referrer.id)
+    from services.blogger_service import maybe_auto_unlock_blogger, maybe_reward_blogger_profiles
 
-        await maybe_auto_unlock_blogger(session, referrer)
-        await maybe_reward_blogger_profiles(session, referrer)
+    await maybe_auto_unlock_blogger(session, referrer)
+    await maybe_reward_blogger_profiles(session, referrer)
 
 
 async def process_referral_on_verification(session: AsyncSession, user: User) -> None:
-    """Обратная совместимость: также засчитываем при верификации."""
+    """Засчитать подтверждённого реферала."""
     await process_referral_on_profile_complete(session, user)
 
 
@@ -121,3 +128,38 @@ async def claim_referral_reward(session: AsyncSession, user: User, threshold: in
         await maybe_auto_unlock_blogger(session, user)
 
     return reward_type
+
+
+def referral_ranking_query():
+    """Единый рейтинг: реальные подтверждённые приглашения + ручной бонус.
+
+    При равном счёте первым идёт меньший ID. В рейтинге все заполненные
+    незаблокированные анкеты, включая пользователей без приглашений.
+    """
+    counts = (
+        select(Referral.referrer_id, func.count(Referral.id).label("verified_count"))
+        .join(User, User.id == Referral.referred_id)
+        .where(User.profile_completed.is_(True), User.verified.is_(True))
+        .group_by(Referral.referrer_id).subquery()
+    )
+    actual = func.coalesce(counts.c.verified_count, 0)
+    score = actual + User.referral_leaderboard_bonus
+    return (
+        select(
+            User.id, User.display_name, User.username, User.telegram_id,
+            User.referral_code, User.referral_track,
+            actual.label("referral_count"),
+            User.referral_leaderboard_bonus.label("leaderboard_bonus"),
+            score.label("leaderboard_count"),
+            func.row_number().over(order_by=(score.desc(), User.id.asc())).label("rank"),
+        )
+        .outerjoin(counts, counts.c.referrer_id == User.id)
+        .where(User.profile_completed.is_(True), User.is_banned.is_(False))
+    )
+
+
+async def get_referral_leaderboard(session: AsyncSession, user_id: int) -> tuple[list[dict], dict | None]:
+    ranked = referral_ranking_query().subquery()
+    top = await session.execute(select(ranked).order_by(ranked.c.rank).limit(5))
+    own = await session.execute(select(ranked).where(ranked.c.id == user_id))
+    return [dict(row) for row in top.mappings()], next((dict(row) for row in own.mappings()), None)

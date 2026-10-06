@@ -10,6 +10,9 @@ interface RefRow {
   telegram_id: number
   referral_code: string | null
   referral_count: number
+  rank: number
+  leaderboard_count: number
+  leaderboard_bonus: number
   referral_track: string | null
   rewards: { threshold: number; reward_type: string; claimed_at: string | null }[]
 }
@@ -40,6 +43,28 @@ export function Referrals({ toast }: Props) {
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [track, setTrack] = useState<TrackFilter>('all')
+  const [telegramId, setTelegramId] = useState('')
+  const [bonus, setBonus] = useState('0')
+  const [saving, setSaving] = useState(false)
+
+  async function saveBonus() {
+    const id = Number(telegramId)
+    const amount = Number(bonus)
+    if (!telegramId.trim() || !bonus.trim() || !Number.isSafeInteger(id) || id <= 0 || !Number.isSafeInteger(amount) || amount < 0 || amount > 1000000) {
+      toast('Введите Telegram ID и бонус от 0 до 1 000 000', 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      await api('/admin/referrals/leaderboard', { method: 'PATCH', body: JSON.stringify({ telegram_id: id, bonus: amount }) })
+      toast('Бонус лидерборда сохранён', 'success')
+      await load()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -85,10 +110,31 @@ export function Referrals({ toast }: Props) {
 
   return (
     <div>
-      <h2 className="section-title">Рефералы</h2>
+      <h2 className="section-title">Партнерка · Лидерборд</h2>
       <p className="section-desc">
         Начисления и пороги · {items.length} участников · {totalInvites} приглашённых
       </p>
+
+      <div className="card">
+        <h3>Топ-5</h3>
+        {!items.length && <p className="muted">Пока нет участников</p>}
+        {items.slice(0, 5).map((u) => (
+          <p key={u.id}>{u.rank}. {u.display_name || u.username || `Пользователь #${u.id}`} — {u.leaderboard_count}</p>
+        ))}
+      </div>
+      <div className="card">
+        <h3>Ручной бонус лидерборда</h3>
+        <p className="section-desc">Прибавляется к подтверждённым приглашениям. Не влияет на награды. Укажите 0, чтобы убрать бонус.</p>
+        <div className="field">
+          <label htmlFor="leaderboard-telegram-id">Telegram ID пользователя</label>
+          <input id="leaderboard-telegram-id" className="input" type="number" value={telegramId} onChange={(e) => setTelegramId(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="leaderboard-bonus">Бонус</label>
+          <input id="leaderboard-bonus" className="input" type="number" min="0" max="1000000" value={bonus} onChange={(e) => setBonus(e.target.value)} />
+        </div>
+        <button className="btn btn-primary" disabled={saving} onClick={saveBonus}>{saving ? 'Сохранение…' : 'Сохранить бонус'}</button>
+      </div>
 
       <div className="search-bar">
         <input
@@ -143,7 +189,16 @@ export function Referrals({ toast }: Props) {
             </div>
 
             <div className="detail-row">
-              <span className="detail-label">Приглашено</span>
+              <span className="detail-label">Место / счет лидерборда</span>
+              <span className="detail-value">#{u.rank} / {u.leaderboard_count}</span>
+            </div>
+            <div className="detail-row">
+              <span className="detail-label">Ручной бонус</span>
+              <span className="detail-value">{u.leaderboard_bonus}</span>
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setTelegramId(String(u.telegram_id)); setBonus(String(u.leaderboard_bonus)) }}>Изменить бонус</button>
+            <div className="detail-row">
+              <span className="detail-label">Подтверждённых приглашений</span>
               <span className="detail-value">{peopleLabel(u.referral_count)}</span>
             </div>
             <div className="detail-row">
