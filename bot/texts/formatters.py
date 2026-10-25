@@ -37,6 +37,11 @@ def _attr_label(prefix: str, code: str | None, lang: str) -> str:
     return tx(lang, f"{prefix}_{code}") or "—"
 
 
+def format_rating(value: float | None) -> str:
+    """Средний рейтинг с одной цифрой после точки (4.8)."""
+    return f"{float(value or 0):.1f}"
+
+
 def format_own_profile(user: User, lang_or_user=None) -> str:
     """Формат карточки своего профиля."""
     lang = normalize_lang(
@@ -58,7 +63,7 @@ def format_own_profile(user: User, lang_or_user=None) -> str:
         verified=verified,
         bio=escape(user.bio or ""),
         sparks=user.sparks_balance,
-        rating=user.rating_avg,
+        rating=format_rating(user.rating_avg),
         rated=user.rating_count,
         attended=user.events_attended,
         organized=user.events_organized,
@@ -108,7 +113,7 @@ def format_other_profile(user: User, lang_or_user="ru", *, viewer: User | None =
         age=years_label(user.age, lang),
         badges=badges,
         bio=escape(user.bio or ""),
-        rating=user.rating_avg,
+        rating=format_rating(user.rating_avg),
         rated=user.rating_count,
         attended=user.events_attended,
         organized=user.events_organized,
