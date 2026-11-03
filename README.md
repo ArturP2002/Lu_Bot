@@ -26,6 +26,23 @@ python main.py
 API: `python run_api.py`  
 Worker: `arq tasks.worker.WorkerSettings`
 
+## Продакшен (VPS)
+
+Postgres и Redis поднимаются через Docker и после reboot должны подниматься сами (`restart: unless-stopped`).
+
+```bash
+cd /opt/lu_bot
+./scripts/ensure_infra.sh
+systemctl restart luma-bot luma-api luma-worker
+```
+
+Правила, чтобы бот снова не «завис»:
+
+- Один Redis на `:6379` — **не** ставьте параллельно `redis-server` из apt, если уже есть контейнер.
+- Порты Postgres/Redis в compose слушают только `127.0.0.1` (не торчат в интернет).
+- `REDIS_URL` в `.env` должен совпадать с реальным Redis. Если включите `requirepass`, URL будет вида `redis://:PASSWORD@localhost:6379/0`, после смены — `systemctl restart luma-bot luma-api luma-worker`.
+- После обновления сервера: `docker compose ps`, `redis-cli ping`, `systemctl is-active luma-bot luma-api luma-worker`.
+
 ## Структура
 
 - `bot/` — Telegram-бот (handlers, keyboards, texts)
