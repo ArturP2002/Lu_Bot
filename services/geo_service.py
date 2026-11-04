@@ -52,11 +52,20 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def format_distance_km(km: float | None, lang: str = "ru") -> str:
-    """Округлённая дистанция для UI. Пустая строка если нет данных."""
+    """Округлённая дистанция для UI. Пустая строка если нет данных.
+
+    Без символа «<» — текст уходит в Telegram HTML, иначе parse entities падает
+    на теге вида <1.
+    """
     if km is None or km < 0:
         return ""
     if km < 1:
-        label = {"ru": "<1 км", "be": "<1 км", "uk": "<1 км", "kk": "<1 км"}.get(lang, "<1 км")
+        label = {
+            "ru": "менее 1 км",
+            "be": "менш за 1 км",
+            "uk": "менше 1 км",
+            "kk": "1 км-ден аз",
+        }.get(lang, "менее 1 км")
         return f" · {label}"
     rounded = int(round(km))
     unit = {"ru": "км", "be": "км", "uk": "км", "kk": "км"}.get(lang, "км")

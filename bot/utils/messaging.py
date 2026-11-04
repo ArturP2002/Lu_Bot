@@ -318,11 +318,29 @@ async def send_ui(
     except TelegramBadRequest as e:
       if _is_invalid_file_id_error(e):
         logger.warning("Invalid photo file_id, fallback to text: %s...", photo_file_id[:24])
-        sent = await message.answer(text, **kwargs)
+        try:
+          sent = await message.answer(text, **kwargs)
+        except TelegramBadRequest as e2:
+          if _is_parse_entities_error(e2):
+            sent = await message.answer(text, reply_markup=reply_markup, parse_mode=None)
+          else:
+            raise
+      elif _is_parse_entities_error(e):
+        logger.warning("HTML caption parse failed, retry plain")
+        sent = await message.answer_photo(
+          photo_file_id, caption=text, reply_markup=reply_markup, parse_mode=None
+        )
       else:
         raise
   else:
-    sent = await message.answer(text, **kwargs)
+    try:
+      sent = await message.answer(text, **kwargs)
+    except TelegramBadRequest as e:
+      if _is_parse_entities_error(e):
+        logger.warning("HTML text parse failed, retry plain")
+        sent = await message.answer(text, reply_markup=reply_markup, parse_mode=None)
+      else:
+        raise
   if track:
     return await _track(redis, sent)  # type: ignore[return-value]
   return sent

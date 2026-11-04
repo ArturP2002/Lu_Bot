@@ -36,7 +36,8 @@ def test_haversine_closer_wins():
 
 def test_format_distance():
     assert format_distance_km(None) == ""
-    assert format_distance_km(0.4) == " · <1 км"
+    assert format_distance_km(0.4) == " · менее 1 км"
+    assert "<" not in format_distance_km(0.4)
     assert format_distance_km(3.2) == " · 3 км"
     assert format_distance_km(12.6) == " · 13 км"
 
