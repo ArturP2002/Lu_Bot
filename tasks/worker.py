@@ -140,6 +140,30 @@ async def reset_exhausted_feeds(ctx) -> int:
     return count
 
 
+async def close_expired_events_job(ctx) -> int:
+    """Каждые 5 минут: закрыть тусовки, у которых прошли дата+время (МСК)."""
+    from aiogram import Bot
+    from aiogram.client.default import DefaultBotProperties
+    from aiogram.enums import ParseMode
+
+    from services.event_service import close_expired_events
+
+    if not settings.bot_token:
+        return 0
+
+    bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    factory = get_session_factory()
+    try:
+        async with factory() as session:
+            closed = await close_expired_events(session, bot)
+            await session.commit()
+        if closed:
+            logger.info("close_expired_events: closed %s events", closed)
+        return closed
+    finally:
+        await bot.session.close()
+
+
 class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     functions = [
@@ -148,9 +172,11 @@ class WorkerSettings:
         backfill_user_event_geo,
         regeocode_entity,
         reset_exhausted_feeds,
+        close_expired_events_job,
     ]
     cron_jobs = [
         cron(renew_premium_subscriptions, minute={15}, unique=True),
         # 00:05 Europe/Moscow == 21:05 UTC (MSK = UTC+3, без DST)
         cron(reset_exhausted_feeds, hour={21}, minute={5}, unique=True),
+        cron(close_expired_events_job, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}, unique=True),
     ]

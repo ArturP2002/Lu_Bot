@@ -22,6 +22,23 @@ async def seed() -> None:
         if not await session.scalar(select(AppSetting).where(AppSetting.key == "ai_daily_limit")):
             session.add(AppSetting(key="ai_daily_limit", value="50"))
 
+        # Переименование legacy → канон
+        renames = {
+            "Праздники": ("Гулять", "☀️", "type"),
+            "Посиделки": ("Все тусовки", "🎉", "all"),
+        }
+        for old_name, (new_name, emoji, ftype) in renames.items():
+            old = await session.scalar(select(EventCategory).where(EventCategory.name == old_name))
+            if old:
+                clash = await session.scalar(select(EventCategory).where(EventCategory.name == new_name))
+                if clash and clash.id != old.id:
+                    old.is_active = False
+                else:
+                    old.name = new_name
+                    old.emoji = emoji
+                    old.filter_type = ftype
+                    old.is_active = True
+
         # Обновляем категории под ТЗ
         for name, emoji, ftype in TZ_CATEGORIES:
             existing = await session.scalar(select(EventCategory).where(EventCategory.name == name))

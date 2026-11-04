@@ -71,7 +71,7 @@ def test_events_db_context_with_events():
         event_date="06.08.2026",
         event_time="20:00",
         address="Арбат",
-        category="Посиделки",
+        category="Гулять",
         price=0,
         men_count=1,
         women_count=2,

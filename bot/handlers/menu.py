@@ -67,9 +67,14 @@ async def menu_profile(
 async def menu_rate(message: Message, state: FSMContext, user: User, session: AsyncSession, redis: Redis) -> None:
   from bot.handlers.luma import clear_luma_browse
   from bot.handlers.rating import show_next_profile
+  from services.like_inbox_service import set_inbox_browsing
 
   await _open_from_menu(message, state, user, redis)
   await clear_luma_browse(redis, user.id)
+  await set_inbox_browsing(redis, user.id, False)
+  # Если лента исчерпана вчера — даём шанс показать снова до ночного cron
+  if user.feed_exhausted:
+    user.feed_exhausted = False
   await show_next_profile(message, user, session, redis=redis)
 
 

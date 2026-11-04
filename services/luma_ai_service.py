@@ -87,9 +87,10 @@ class EventFilters:
 # Канонические категории БД + алиасы из живой речи
 _EVENT_CATEGORY_ALIASES: list[tuple[tuple[str, ...], str]] = [
     (("на хату", "хату", "хата", "квартирник", "квартирн", "домашн"), "На хату"),
-    (("праздник", "день рождения", "birthday", "юбилей", "свят"), "Праздники"),
+    (("гулять", "прогул", "парк", "улиц", "пикник", "шашлык"), "Гулять"),
+    (("праздник", "день рождения", "birthday", "юбилей", "свят"), "Гулять"),
     (("игр", "настол", "мафи", "board", "playstation", "приставк"), "Игры"),
-    (("посидел", "чай", "кофе", "общен"), "Посиделки"),
+    (("посидел", "чай", "кофе", "общен"), "Гулять"),
 ]
 
 # Синонимы тем: запрос «кино» должен ловить title/description с «фильм»
@@ -371,7 +372,7 @@ async def _ai_parse_filters(query: str, viewer: User, kind: str) -> dict | None:
     )
     schema_events = (
         '{"city": string|null, "keywords": string[], "today_only": bool, '
-        '"category": "На хату"|"Праздники"|"Игры"|"Посиделки"|string|null, '
+        '"category": "На хату"|"Гулять"|"Игры"|string|null, '
         '"any_city": bool}'
     )
     schema = schema_people if kind == "people" else schema_events
@@ -388,7 +389,7 @@ async def _ai_parse_filters(query: str, viewer: User, kind: str) -> dict | None:
             )
         else:
             extra_hint = (
-                "category — канон: «На хату», «Праздники», «Игры», «Посиделки» если тема ясна; "
+                "category — канон: «На хату», «Гулять», «Игры» если тема ясна; "
                 "keywords — тема/место/атмосфера (кино, бар, шашлык, квартирник), без стоп-слов. "
             )
         response = await client.chat.completions.create(
@@ -879,7 +880,7 @@ _TOOLS = [
             "description": (
                 "Поиск активных тусовок в БД LUMA по теме/категории/городу. "
                 "keywords — тема (кино, бар, шашлык); "
-                "category — «На хату», «Праздники», «Игры», «Посиделки»."
+                "category — «На хату», «Гулять», «Игры»."
             ),
             "parameters": {
                 "type": "object",

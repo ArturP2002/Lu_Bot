@@ -5,14 +5,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Не делаем `source .env` — там часто значения с пробелами без кавычек.
 if [[ -f .env ]]; then
-  # shellcheck disable=SC1091
-  set -a
-  # shellcheck disable=SC1090
-  source .env
-  set +a
+  line="$(grep -E '^[[:space:]]*REDIS_URL=' .env | tail -n1 || true)"
+  if [[ -n "$line" ]]; then
+    REDIS_URL="${line#*=}"
+    REDIS_URL="${REDIS_URL%\"}"
+    REDIS_URL="${REDIS_URL#\"}"
+    REDIS_URL="${REDIS_URL%\'}"
+    REDIS_URL="${REDIS_URL#\'}"
+  fi
 fi
-
 REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
 
 echo "==> docker compose up -d postgres redis"

@@ -18,10 +18,13 @@ MENU: dict[str, dict[str, str]] = {
 EVENT_CATEGORIES: dict[str, dict[str, str]] = {
     "Сегодня": {"ru": "Сегодня", "be": "Сёння", "uk": "Сьогодні", "kk": "Бүгін"},
     "Рядом": {"ru": "Рядом", "be": "Пабач", "uk": "Поруч", "kk": "Жақын"},
-    "На хату": {"ru": "На хату", "be": "На хату", "uk": "На хату", "kk": "Үйге"},
-    "Праздники": {"ru": "Праздники", "be": "Святы", "uk": "Свята", "kk": "Мерекелер"},
     "Игры": {"ru": "Игры", "be": "Гульні", "uk": "Ігри", "kk": "Ойындар"},
-    "Посиделки": {"ru": "Посиделки", "be": "Пасядзелкі", "uk": "Посиденьки", "kk": "Басқосу"},
+    "На хату": {"ru": "На хату", "be": "На хату", "uk": "На хату", "kk": "Үйге"},
+    "Гулять": {"ru": "Гулять", "be": "Гуляць", "uk": "Гуляти", "kk": "Серуендеу"},
+    "Все тусовки": {"ru": "Все тусовки", "be": "Усе тусоўкі", "uk": "Усі тусовки", "kk": "Барлық тусовкалар"},
+    # legacy aliases (старые имена в Event.category / БД до миграции)
+    "Праздники": {"ru": "Гулять", "be": "Гуляць", "uk": "Гуляти", "kk": "Серуендеу"},
+    "Посиделки": {"ru": "Все тусовки", "be": "Усе тусоўкі", "uk": "Усі тусовки", "kk": "Барлық тусовкалар"},
 }
 
 INLINE: dict[str, dict[str, str]] = {
@@ -42,9 +45,11 @@ INLINE: dict[str, dict[str, str]] = {
     "prof_reset": {"ru": "Сбросить рейтинг📈", "be": "Скінуць рэйтынг📈", "uk": "Скинути рейтинг📈", "kk": "Рейтингті тастау📈"},
     "goal_change": {"ru": "Поменять цель", "be": "Змяніць мэту", "uk": "Змінити ціль", "kk": "Мақсатты өзгерту"},
     "goal_withdraw": {"ru": "Вывести в искры", "be": "Вывесці ў іскры", "uk": "Вивести в іскри", "kk": "Ұшқынға шығару"},
-    "ev_create": {"ru": "Создать тусовку", "be": "Стварыць тусоўку", "uk": "Створити тусовку", "kk": "Тусовка жасау"},
-    "ev_my": {"ru": "Мои тусовки", "be": "Мае тусоўкі", "uk": "Мої тусовки", "kk": "Менің тусовкаларым"},
-    "ev_find": {"ru": "Найти тусовку", "be": "Знайсці тусоўку", "uk": "Знайти тусовку", "kk": "Тусовка табу"},
+    "ev_create": {"ru": "Создать тусовку ➕", "be": "Стварыць тусоўку ➕", "uk": "Створити тусовку ➕", "kk": "Тусовка жасау ➕"},
+    "ev_my": {"ru": "Мои тусовки 😎", "be": "Мае тусоўкі 😎", "uk": "Мої тусовки 😎", "kk": "Менің тусовкаларым 😎"},
+    "ev_find": {"ru": "Найти тусовку 🔍", "be": "Знайсці тусоўку 🔍", "uk": "Знайти тусовку 🔍", "kk": "Тусовка табу 🔍"},
+    "like_inbox_rate": {"ru": "❤️ Оценивать", "be": "❤️ Ацэньваць", "uk": "❤️ Оцінювати", "kk": "❤️ Бағалау"},
+    "like_inbox_later": {"ru": "Позже", "be": "Пазней", "uk": "Пізніше", "kk": "Кейінірек"},
     "ev_apply": {"ru": "Подать заявку", "be": "Падаць заяўку", "uk": "Подати заявку", "kk": "Өтінім беру"},
     "ev_next": {"ru": "Следующая", "be": "Наступная", "uk": "Наступна", "kk": "Келесі"},
     "ev_share": {"ru": "Поделиться", "be": "Падзяліцца", "uk": "Поділитися", "kk": "Бөлісу"},
@@ -167,7 +172,12 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
             "Отправь геолокацию или напиши город текстом. Можно выбрать «Мой город»."
         ),
         "EVENT_ASK_ADDRESS": "Место проведения:",
-        "EVENT_ASK_DATETIME": "Дата и время (например: 25.07.2026 19:00):",
+        "EVENT_ASK_DATETIME": "Дата и время (например: 25.07.2026 19:00).\nНе раньше сейчас и не позже чем через 30 дней:",
+        "EVENT_DATETIME_INVALID": "Не понял дату. Формат: 25.07.2026 19:00",
+        "EVENT_DATETIME_PAST": "Нельзя указать прошедшую дату и время.",
+        "EVENT_DATETIME_TOO_FAR": "Тусовку можно создать максимум на ближайший месяц.",
+        "LIKE_NOTIFY_BATCH": "Тебя лайкнули {n} человек ❤️\nХочешь заглянуть в анкету?",
+        "LIKE_INBOX_DONE": "Это все кто тебя лайкнул 🩶\nНайдем еще людей?",
         "EVENT_ASK_PRICE": "Сколько скидываться:",
         "EVENT_ASK_MEN": "Сколько парней нужно:",
         "EVENT_ASK_WOMEN": "Сколько девушек нужно:",
@@ -335,7 +345,12 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "EVENT_ASK_TITLE": "Назва тусоўкі:",
         "EVENT_ASK_CITY": "Горад:",
         "EVENT_ASK_ADDRESS": "Месца:",
-        "EVENT_ASK_DATETIME": "Дата і час (напр. 25.07.2026 19:00):",
+        "EVENT_ASK_DATETIME": "Дата і час (напр. 25.07.2026 19:00).\nНе раней за зараз і не пазней чым праз 30 дзён:",
+        "EVENT_DATETIME_INVALID": "Не зразумеў дату. Фармат: 25.07.2026 19:00",
+        "EVENT_DATETIME_PAST": "Нельга ўказаць мінулую дату і час.",
+        "EVENT_DATETIME_TOO_FAR": "Тусоўку можна стварыць максімум на бліжэйшы месяц.",
+        "LIKE_NOTIFY_BATCH": "Цябе лайкнулі {n} чалавек ❤️\nХочаш паглядзець анкету?",
+        "LIKE_INBOX_DONE": "Гэта ўсе, хто цябе лайкнуў 🩶\nЗнойдзем яшчэ людзей?",
         "EVENT_ASK_PRICE": "Колькі скідвацца:",
         "EVENT_ASK_MEN": "Колькі хлопцаў:",
         "EVENT_ASK_WOMEN": "Колькі дзяўчат:",
@@ -489,7 +504,12 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "EVENT_ASK_TITLE": "Назва тусовки:",
         "EVENT_ASK_CITY": "Місто:",
         "EVENT_ASK_ADDRESS": "Місце:",
-        "EVENT_ASK_DATETIME": "Дата і час (напр. 25.07.2026 19:00):",
+        "EVENT_ASK_DATETIME": "Дата і час (напр. 25.07.2026 19:00).\nНе раніше зараз і не пізніше ніж через 30 днів:",
+        "EVENT_DATETIME_INVALID": "Не зрозумів дату. Формат: 25.07.2026 19:00",
+        "EVENT_DATETIME_PAST": "Не можна вказати минулу дату і час.",
+        "EVENT_DATETIME_TOO_FAR": "Тусовку можна створити максимум на найближчий місяць.",
+        "LIKE_NOTIFY_BATCH": "Тебе лайкнули {n} людей ❤️\nХочеш подивитись анкету?",
+        "LIKE_INBOX_DONE": "Це всі, хто тебе лайкнув 🩶\nЗнайдемо ще людей?",
         "EVENT_ASK_PRICE": "Скільки скидатися:",
         "EVENT_ASK_MEN": "Скільки хлопців:",
         "EVENT_ASK_WOMEN": "Скільки дівчат:",
@@ -643,7 +663,12 @@ EXTRA_TEXTS: dict[str, dict[str, str]] = {
         "EVENT_ASK_TITLE": "Тусовка атауы:",
         "EVENT_ASK_CITY": "Қала:",
         "EVENT_ASK_ADDRESS": "Орын:",
-        "EVENT_ASK_DATETIME": "Күні мен уақыты (мыс. 25.07.2026 19:00):",
+        "EVENT_ASK_DATETIME": "Күні мен уақыты (мыс. 25.07.2026 19:00).\nҚазірден ерте емес және 30 күннен кеш емес:",
+        "EVENT_DATETIME_INVALID": "Күнді түсінбедім. Формат: 25.07.2026 19:00",
+        "EVENT_DATETIME_PAST": "Өткен күн мен уақытты қоюға болмайды.",
+        "EVENT_DATETIME_TOO_FAR": "Тусовканы ең көбі бір айға алға қоюға болады.",
+        "LIKE_NOTIFY_BATCH": "Сізді {n} адам лайктады ❤️\nАнкетаны көргің келе ме?",
+        "LIKE_INBOX_DONE": "Сізді лайктағандардың бәрі осы 🩶\nТағы адам іздейік пе?",
         "EVENT_ASK_PRICE": "Қанша жинау:",
         "EVENT_ASK_MEN": "Қанша жігіт:",
         "EVENT_ASK_WOMEN": "Қанша қыз:",
@@ -820,10 +845,41 @@ def tx(lang_or_user, key: str, **kwargs) -> str:
     return base_t(lang, key, **kwargs)
 
 
+def normalize_menu_text(text: str | None) -> str:
+    """Свести варианты эмодзи/пробелов для матча reply-кнопок."""
+    if not text:
+        return ""
+    s = str(text).replace("\ufe0f", "").replace("\u200d", "")
+    # схлопнуть пробелы вокруг эмодзи в конце
+    while "  " in s:
+        s = s.replace("  ", " ")
+    return s.strip()
+
+
+def _label_match_variants(label: str) -> set[str]:
+    """Канон + без VS16 + с пробелом перед последним символом-эмодзи."""
+    base = label
+    no_vs = label.replace("\ufe0f", "")
+    variants = {base, no_vs, normalize_menu_text(base), normalize_menu_text(no_vs)}
+    for raw in (base, no_vs):
+        # «Оценивать❤️» ↔ «Оценивать ❤️»
+        if len(raw) >= 2 and raw[-1] not in " \t":
+            spaced = f"{raw[:-1].rstrip()} {raw[-1]}"
+            variants.add(spaced)
+            variants.add(normalize_menu_text(spaced))
+        glued = raw.replace(" ", "")
+        variants.add(glued)
+        variants.add(normalize_menu_text(glued))
+    return {v for v in variants if v}
+
+
 def all_menu_labels(action: str) -> set[str]:
     row = MENU.get(action) or {}
-    labels = set(row.values())
-    labels |= _MENU_LEGACY.get(action, set())
+    labels: set[str] = set()
+    for value in row.values():
+        labels |= _label_match_variants(value)
+    for value in _MENU_LEGACY.get(action, set()):
+        labels |= _label_match_variants(value)
     return labels
 
 
@@ -837,18 +893,30 @@ def all_main_menu_texts() -> set[str]:
 
 # Старые подписи без эмодзи — пока у пользователей не обновилась клавиатура
 _MENU_LEGACY: dict[str, set[str]] = {
-    "rate": {"Оценивать", "Ацэньваць", "Оцінювати", "Бағалау"},
-    "events": {"Тусовки", "Тусоўкі", "Тусовкалар"},
-    "profile": {"Профиль", "Профіль"},
-    "goals": {"Цели", "Мэты", "Цілі", "Мақсаттар"},
-    "luma": {"Лума"},
+    "rate": {
+        "Оценивать",
+        "Ацэньваць",
+        "Оцінювати",
+        "Бағалау",
+        "Оценивать ❤️",
+        "Оценивать❤",
+        "Ацэньваць ❤️",
+        "Оцінювати ❤️",
+        "Бағалау ❤️",
+    },
+    "events": {"Тусовки", "Тусоўкі", "Тусовкалар", "Тусовки 🥳", "Тусоўкі 🥳", "Тусовкалар 🥳"},
+    "profile": {"Профиль", "Профіль", "Профиль 👤", "Профіль 👤"},
+    "goals": {"Цели", "Мэты", "Цілі", "Мақсаттар", "Цели ✨", "Мэты ✨", "Цілі ✨", "Мақсаттар ✨"},
+    "luma": {"Лума", "Лу", "Лу 👩‍💼"},
     "menu": set(),
 }
 
 
 def resolve_menu_action(text: str) -> str | None:
-    for action, row in MENU.items():
-        if text in row.values() or text in _MENU_LEGACY.get(action, set()):
+    norm = normalize_menu_text(text)
+    for action in MENU:
+        candidates = {normalize_menu_text(x) for x in all_menu_labels(action)}
+        if text in all_menu_labels(action) or norm in candidates:
             return action
     return None
 

@@ -53,6 +53,7 @@ from models import Complaint, Event, EventApplication, EventCategory, EventStatu
 from models.entities import ApplicationStatus
 from services.blogger_service import pay_blogger_commission
 from services.event_service import (
+    TZ_CATEGORIES,
     boost_event,
     can_create_event,
     close_event_and_invite,
@@ -60,9 +61,11 @@ from services.event_service import (
     get_next_event,
     get_pin_price_for_user,
     is_topic_category,
+    parse_user_event_datetime,
     pin_event,
     send_mass_invites,
     sync_events_organized,
+    validate_event_schedule,
 )
 from services.geo_service import distance_suffix_for, geocode_city, GEO_SOURCE_CITY_CENTER
 from services.luma_ai_service import moderate_text
@@ -318,8 +321,16 @@ async def ev_create_address(message: Message, state: FSMContext, user: User, red
 @router.message(EventCreate.datetime, F.text)
 async def ev_create_datetime(message: Message, state: FSMContext, user: User, redis: Redis) -> None:
   data = await state.get_data()
-  parts = message.text.strip().split(maxsplit=1)
-  await state.update_data(event_date=parts[0], event_time=parts[1] if len(parts) > 1 else "19:00")
+  parsed = parse_user_event_datetime(message.text or "")
+  if not parsed:
+    await message.answer(tx(user, "EVENT_DATETIME_INVALID"))
+    return
+  event_date, event_time, ends_at = parsed
+  err = validate_event_schedule(ends_at)
+  if err:
+    await message.answer(tx(user, err))
+    return
+  await state.update_data(event_date=event_date, event_time=event_time)
   await state.set_state(EventCreate.price)
   await cleanup_user_and_prompt(message, prompt_message_id=data.get("prompt_message_id"))
   prompt = await send_ui(message, tx(user, "EVENT_ASK_PRICE"), redis=redis)
@@ -353,7 +364,7 @@ async def ev_create_women(message: Message, state: FSMContext, user: User, sessi
   await state.set_state(EventCreate.category)
   await cleanup_user_and_prompt(message, prompt_message_id=data.get("prompt_message_id"))
   result = await session.execute(select(EventCategory).where(EventCategory.is_active.is_(True)))
-  cats = [c for c in result.scalars().all() if is_topic_category(c)]
+  cats = [c for c in _ordered_active_categories(list(result.scalars().all())) if is_topic_category(c)]
   lang = lang_of(user)
   from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -649,11 +660,16 @@ async def ev_pay_ask(callback: CallbackQuery, user: User, session: AsyncSession,
   await callback.answer()
 
 
+def _ordered_active_categories(cats: list[EventCategory]) -> list[EventCategory]:
+  order = {name: i for i, (name, *_rest) in enumerate(TZ_CATEGORIES)}
+  return sorted(cats, key=lambda c: order.get(c.name or "", 999))
+
+
 @router.callback_query(F.data == "ev:find")
 async def ev_find(callback: CallbackQuery, session: AsyncSession, user: User, redis: Redis) -> None:
   lang = lang_of(user)
   result = await session.execute(select(EventCategory).where(EventCategory.is_active.is_(True)))
-  cats = result.scalars().all()
+  cats = _ordered_active_categories(list(result.scalars().all()))
   cats_data = [(str(c.id), category_label(c.name, lang, emoji=c.emoji or "")) for c in cats]
   await safe_edit_text(
     callback.message,
@@ -1251,9 +1267,17 @@ async def ev_edit_text_save(
   elif field == "address":
     event.address = value[:512]
   elif field == "datetime":
-    parts = value.split(maxsplit=1)
-    event.event_date = parts[0]
-    event.event_time = parts[1] if len(parts) > 1 else event.event_time
+    parsed = parse_user_event_datetime(value)
+    if not parsed:
+      await message.answer(tx(user, "EVENT_DATETIME_INVALID"))
+      return
+    event_date, event_time, ends_at = parsed
+    err = validate_event_schedule(ends_at)
+    if err:
+      await message.answer(tx(user, err))
+      return
+    event.event_date = event_date
+    event.event_time = event_time
   elif field == "price":
     event.price = int(value) if value.isdigit() else event.price
   elif field == "description":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -23,6 +24,114 @@ settings = get_settings()
 PREMIUM_PIN_DISCOUNT = 0.50
 FREE_BOOST_COOLDOWN = timedelta(hours=1)
 MASS_INVITE_LIMIT = 30
+MSK = ZoneInfo("Europe/Moscow")
+
+
+def _add_one_calendar_month(dt: datetime) -> datetime:
+    """01.01 → 01.02 (с учётом длины месяца)."""
+    month = dt.month + 1
+    year = dt.year
+    if month > 12:
+        month = 1
+        year += 1
+    last_day = calendar.monthrange(year, month)[1]
+    day = min(dt.day, last_day)
+    return dt.replace(year=year, month=month, day=day)
+
+
+def parse_event_datetime_parts(date_str: str, time_str: str | None = None) -> datetime | None:
+    """Собрать aware datetime (МСК) из строк даты/времени тусовки."""
+    date_raw = (date_str or "").strip()
+    time_raw = (time_str or "19:00").strip() or "19:00"
+    if not date_raw:
+        return None
+    date_formats = ("%d.%m.%Y", "%d/%m/%Y", "%Y-%m-%d", "%d.%m.%y", "%d/%m/%y")
+    time_formats = ("%H:%M", "%H.%M", "%H:%M:%S")
+    parsed_date = None
+    for fmt in date_formats:
+        try:
+            parsed_date = datetime.strptime(date_raw, fmt).date()
+            break
+        except ValueError:
+            continue
+    if parsed_date is None:
+        return None
+    parsed_time = None
+    for fmt in time_formats:
+        try:
+            parsed_time = datetime.strptime(time_raw, fmt).time()
+            break
+        except ValueError:
+            continue
+    if parsed_time is None:
+        return None
+    return datetime.combine(parsed_date, parsed_time, tzinfo=MSK)
+
+
+def parse_event_ends_at(event: Event) -> datetime | None:
+    """Момент окончания тусовки (дата+время МСК) в UTC-aware datetime."""
+    ends = parse_event_datetime_parts(event.event_date or "", event.event_time)
+    return ends
+
+
+def parse_user_event_datetime(text: str) -> tuple[str, str, datetime] | None:
+    """Разобрать ввод пользователя «ДД.ММ.ГГГГ ЧЧ:ММ» → (date, time, ends_at_msk)."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    parts = raw.split(maxsplit=1)
+    date_s = parts[0]
+    time_s = parts[1] if len(parts) > 1 else "19:00"
+    ends = parse_event_datetime_parts(date_s, time_s)
+    if ends is None:
+        return None
+    # Нормализуем сохраняемый формат
+    return ends.strftime("%d.%m.%Y"), ends.strftime("%H:%M"), ends
+
+
+def validate_event_schedule(ends_at: datetime, *, now: datetime | None = None) -> str | None:
+    """None если ок, иначе ключ ошибки i18n.
+
+    Максимум — календарный месяц вперёд (01.01 → весь день 01.02 включительно).
+    """
+    from datetime import time as dtime
+
+    now = now or datetime.now(MSK)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=MSK)
+    else:
+        now = now.astimezone(MSK)
+    ends = ends_at.astimezone(MSK) if ends_at.tzinfo else ends_at.replace(tzinfo=MSK)
+    if ends <= now:
+        return "EVENT_DATETIME_PAST"
+    max_day = _add_one_calendar_month(now).date()
+    max_end = datetime.combine(max_day, dtime(23, 59, 59), tzinfo=MSK)
+    if ends > max_end:
+        return "EVENT_DATETIME_TOO_FAR"
+    return None
+
+
+async def close_expired_events(session: AsyncSession, bot) -> int:
+    """Закрыть active-тусовки, у которых дата+время уже прошли (МСК)."""
+    result = await session.execute(select(Event).where(Event.status == EventStatus.ACTIVE.value))
+    events = list(result.scalars().all())
+    now = datetime.now(timezone.utc)
+    closed = 0
+    for event in events:
+        ends = parse_event_ends_at(event)
+        if ends is None:
+            continue
+        ends_utc = ends.astimezone(timezone.utc)
+        if ends_utc > now:
+            continue
+        try:
+            await close_event_and_invite(session, bot, event)
+            closed += 1
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("auto-close event %s failed", event.id)
+    return closed
 
 
 async def get_boost_base_price(session: AsyncSession) -> int:
@@ -153,7 +262,8 @@ async def find_events(
     filter_type:
       - time (Сегодня) — по дате события «сегодня» (МСК) и/или тегу категории
       - geo (Рядом) — по расстоянию (если geo_search_enabled) или тот же город
-      - type — тематика (На хату, Игры, …) по полю Event.category
+      - all (Все тусовки) — все активные без фильтра тематики
+      - type — тематика (На хату, Игры, Гулять, …) по полю Event.category
     """
     from services.app_settings_service import get_setting_bool
     from services.geo_service import (
@@ -219,6 +329,8 @@ async def find_events(
                         clauses.append(in_radius)
                 else:
                     clauses.extend(_geo_city_fallback_clauses(viewer))
+            elif ft == "all" or name_l in {"все тусовки", "all"} or "все тусовки" in name_l:
+                pass  # все активные
             else:
                 clauses.extend(_category_filter_clauses(category, viewer, today_variants))
 
@@ -290,25 +402,34 @@ def _category_filter_clauses(
     if ft == "geo" or name_l in {"рядом", "near"} or "рядом" in name_l or "near" in name_l:
         return _geo_city_fallback_clauses(viewer)
 
-    # Тематика — гибкое совпадение по названию / emoji+название
+    # Все тусовки — без фильтра тематики
+    if ft == "all" or name_l in {"все тусовки", "all"} or "все тусовки" in name_l:
+        return []
+
+    # Тематика — гибкое совпадение по названию / emoji+название (+ legacy aliases)
+    aliases = [name]
+    if name_l == "гулять":
+        aliases.extend(["Праздники", "праздники"])
+    elif name_l == "все тусовки":
+        aliases.extend(["Посиделки", "посиделки"])
     return [
         or_(
-            Event.category == name,
+            *[Event.category == a for a in aliases],
             Event.category == emoji_label,
-            Event.category.ilike(f"%{name}%"),
+            *[Event.category.ilike(f"%{a}%") for a in aliases],
         )
     ]
 
 
 def is_topic_category(category: EventCategory) -> bool:
-    """Категория-тематика для создания тусовки (не умный фильтр Сегодня/Рядом)."""
+    """Категория-тематика для создания тусовки (не умный фильтр Сегодня/Рядом/Все)."""
     ft = (category.filter_type or "type").strip().lower()
     name_l = (category.name or "").strip().lower()
-    if ft in {"time", "geo"}:
+    if ft in {"time", "geo", "all"}:
         return False
-    if name_l in {"сегодня", "today", "рядом", "near"}:
+    if name_l in {"сегодня", "today", "рядом", "near", "все тусовки", "all"}:
         return False
-    if "сегодня" in name_l or "рядом" in name_l:
+    if "сегодня" in name_l or "рядом" in name_l or "все тусовки" in name_l:
         return False
     return True
 
@@ -472,8 +593,8 @@ async def close_event_and_invite(
 TZ_CATEGORIES = [
     ("Сегодня", "🔥", "time"),
     ("Рядом", "📍", "geo"),
-    ("На хату", "🏠", "type"),
-    ("Праздники", "🎊", "type"),
     ("Игры", "🎮", "type"),
-    ("Посиделки", "🍕", "type"),
+    ("На хату", "🏠", "type"),
+    ("Гулять", "☀️", "type"),
+    ("Все тусовки", "🎉", "all"),
 ]

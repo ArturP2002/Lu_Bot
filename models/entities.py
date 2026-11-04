@@ -186,6 +186,7 @@ class Like(Base):
     from_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     to_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    seen_by_target_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

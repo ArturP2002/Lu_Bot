@@ -459,6 +459,28 @@ def like_offer_kb(from_user_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
     )
 
 
+def like_inbox_offer_kb(lang: str = "ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=lbl(lang, "like_view_yes"), callback_data="like:view_inbox"),
+                InlineKeyboardButton(text=lbl(lang, "like_later"), callback_data="like:decline"),
+            ]
+        ]
+    )
+
+
+def like_inbox_done_kb(lang: str = "ru") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=lbl(lang, "like_inbox_rate"), callback_data="like:inbox_rate"),
+                InlineKeyboardButton(text=lbl(lang, "like_inbox_later"), callback_data="like:decline"),
+            ]
+        ]
+    )
+
+
 def match_dm_kb(url: str, lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=lbl(lang, "write_tg"), url=url)]]
