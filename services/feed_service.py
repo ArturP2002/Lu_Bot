@@ -39,6 +39,15 @@ def mark_feed_exhausted(user: User) -> bool:
     return True
 
 
+async def clear_profile_skips_for_user(session: AsyncSession, user_id: int) -> int:
+    """Сбросить скипы ленты одного пользователя. Возвращает число удалённых строк."""
+    result = await session.execute(
+        delete(ProfileSkip).where(ProfileSkip.from_user_id == user_id)
+    )
+    await session.flush()
+    return int(result.rowcount or 0)
+
+
 async def reset_exhausted_feed_skips(session: AsyncSession) -> int:
     """Очистить скипы у пользователей с feed_exhausted и снять флаг.
 

@@ -31,7 +31,13 @@ from bot.utils.messaging import (
     strip_inline_keyboard,
 )
 from models import Complaint, Like, Rating, User
-from services.feed_service import get_next_profile, mark_feed_exhausted, recalculate_rating, record_profile_skip
+from services.feed_service import (
+    clear_profile_skips_for_user,
+    get_next_profile,
+    mark_feed_exhausted,
+    recalculate_rating,
+    record_profile_skip,
+)
 from services.like_inbox_service import (
     clear_inbox_message,
     get_next_unseen_like,
@@ -188,6 +194,7 @@ async def show_next_profile(
     redis: Redis | None = None,
     edit: bool = False,
     finalize_previous: bool = False,
+    allow_feed_reset: bool = False,
 ) -> None:
     from bot.handlers.luma import try_show_next_luma_person
 
@@ -200,6 +207,19 @@ async def show_next_profile(
         return
 
     target = await get_next_profile(session, user, exclude or [], redis=redis)
+    if not target and allow_feed_reset:
+        # Вход из меню «Оценивать»: скипы накопились — новый круг без ожидания ночного cron
+        cleared = await clear_profile_skips_for_user(session, user.id)
+        user.feed_exhausted = False
+        await session.commit()
+        logger.info(
+            "rate feed reset telegram_id=%s cleared_skips=%s seeking=%s city=%s",
+            user.telegram_id,
+            cleared,
+            user.seeking,
+            user.city,
+        )
+        target = await get_next_profile(session, user, exclude or [], redis=redis)
     if not target:
         mark_feed_exhausted(user)
         logger.info(

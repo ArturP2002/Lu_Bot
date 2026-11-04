@@ -90,15 +90,19 @@ async def menu_rate(message: Message, state: FSMContext, user: User, session: As
   await _open_from_menu(message, state, user, redis)
   await clear_luma_browse(redis, user.id)
   await set_inbox_browsing(redis, user.id, False)
-  # Если лента исчерпана вчера — даём шанс показать снова до ночного cron
-  if user.feed_exhausted:
-    user.feed_exhausted = False
   try:
-    await show_next_profile(message, user, session, redis=redis)
-  except Exception:
-    logger.exception("menu_rate show_next_profile failed telegram_id=%s", user.telegram_id)
-    await message.answer(t(user, "RATE_EMPTY"))
-    raise
+    await show_next_profile(message, user, session, redis=redis, allow_feed_reset=True)
+  except Exception as e:
+    logger.exception(
+      "menu_rate show_next_profile failed telegram_id=%s err=%s: %s",
+      user.telegram_id,
+      type(e).__name__,
+      e,
+    )
+    try:
+      await message.answer(t(user, "RATE_EMPTY"))
+    except Exception:
+      logger.exception("menu_rate fallback RATE_EMPTY failed telegram_id=%s", user.telegram_id)
 
 
 @router.message(MenuAction("goals"))
