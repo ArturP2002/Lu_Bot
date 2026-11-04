@@ -100,9 +100,11 @@ async def menu_rate(message: Message, state: FSMContext, user: User, session: As
       e,
     )
     try:
-      await message.answer(t(user, "RATE_EMPTY"))
+      await message.answer(
+        "Не удалось открыть ленту. Попробуй ещё раз через пару секунд."
+      )
     except Exception:
-      logger.exception("menu_rate fallback RATE_EMPTY failed telegram_id=%s", user.telegram_id)
+      logger.exception("menu_rate fallback failed telegram_id=%s", user.telegram_id)
 
 
 @router.message(MenuAction("goals"))

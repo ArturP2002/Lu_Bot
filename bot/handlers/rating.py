@@ -211,7 +211,7 @@ async def show_next_profile(
         # Вход из меню «Оценивать»: скипы накопились — новый круг без ожидания ночного cron
         cleared = await clear_profile_skips_for_user(session, user.id)
         user.feed_exhausted = False
-        await session.commit()
+        await session.flush()
         logger.info(
             "rate feed reset telegram_id=%s cleared_skips=%s seeking=%s city=%s",
             user.telegram_id,
@@ -240,22 +240,48 @@ async def show_next_profile(
             finalize_previous=finalize_previous,
         )
         return
+
+    logger.info(
+        "rate show profile telegram_id=%s target_id=%s allow_reset=%s",
+        user.telegram_id,
+        target.id,
+        allow_feed_reset,
+    )
     from services.event_service import sync_events_organized
 
     await sync_events_organized(session, target)
     text = format_other_profile(target, lang_of(user), viewer=user)
     kb = rate_card_kb(target.id, lang_of(user))
-    await edit_or_send(
-        message,
-        text,
-        media=get_profile_media(target),
-        reply_markup=kb,
-        redis=redis,
-        edit=False,
-        track=True,
-        keep_previous=True,
-        finalize_previous=finalize_previous,
-    )
+    media = get_profile_media(target)
+    try:
+        await edit_or_send(
+            message,
+            text,
+            media=media,
+            reply_markup=kb,
+            redis=redis,
+            edit=False,
+            track=True,
+            keep_previous=True,
+            finalize_previous=finalize_previous,
+        )
+    except Exception:
+        logger.exception(
+            "rate card send failed telegram_id=%s target_id=%s media=%s — fallback text",
+            user.telegram_id,
+            target.id,
+            len(media),
+        )
+        await edit_or_send(
+            message,
+            text,
+            reply_markup=kb,
+            redis=redis,
+            edit=False,
+            track=True,
+            keep_previous=True,
+            finalize_previous=False,
+        )
 
 
 async def _create_like_if_needed(session: AsyncSession, from_id: int, to_id: int, comment: str | None = None) -> bool:
