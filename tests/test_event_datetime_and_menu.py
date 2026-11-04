@@ -49,10 +49,22 @@ def test_tz_categories_and_topic_filter():
 
 
 def test_menu_rate_variants():
+    from bot.texts.ui_labels import text_matches_menu_action
+
     labels = all_menu_labels("rate")
     assert any("Оценивать" in x for x in labels)
-    for text in ("Оценивать❤️", "Оценивать❤", "Оценивать ❤️", "Оценивать"):
-        assert resolve_menu_action(text) == "rate"
+    for text in (
+        "Оценивать❤️",
+        "Оценивать❤",
+        "Оценивать ❤️",
+        "Оценивать",
+        "Оценивать ❤️\u200b",
+        "Оценивать❤️ ",
+    ):
+        assert resolve_menu_action(text) == "rate", text
+        assert text_matches_menu_action(text, "rate"), text
+    assert resolve_menu_action("Тусовки 🥳") == "events"
+    assert resolve_menu_action("Лу 👩‍💼") == "luma"
 
 
 def test_like_inbox_threshold():

@@ -117,9 +117,10 @@ async def show_luma_person_card(
     media=get_profile_media(profile),
     reply_markup=kb,
     redis=redis,
-    edit=edit,
+    edit=False,
     track=True,
-    finalize_previous=finalize_previous,
+    keep_previous=True,
+    finalize_previous=finalize_previous or bool(edit),
   )
 
 
@@ -146,7 +147,9 @@ async def show_luma_event_card(
     photo_file_id=event.photo_file_id,
     reply_markup=event_card_kb(event.id, lang),
     redis=redis,
-    edit=edit,
+    edit=False,
+    keep_previous=True,
+    finalize_previous=bool(edit),
   )
 
 

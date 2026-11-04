@@ -40,6 +40,7 @@ from bot.texts.i18n import complaint_reason_label, lang_of, t
 from bot.texts.ui_labels import category_label, lbl, localize_stored_category, service_err, tx
 from bot.utils.messaging import (
     cleanup_user_and_prompt,
+    edit_or_send,
     safe_edit_media,
     safe_edit_text,
     schedule_delete,
@@ -733,15 +734,21 @@ async def ev_next(callback: CallbackQuery, user: User, session: AsyncSession, re
   from bot.handlers.luma import try_show_next_luma_event
 
   if await try_show_next_luma_event(
-    callback.message, user, session, redis, exclude=[after_id], edit=True
+    callback.message, user, session, redis, exclude=[after_id], edit=False
   ):
     await callback.answer()
     return
 
   event = await get_next_event(session, user, category_id=cat_id, after_id=after_id, redis=redis)
   if not event:
-    sent = await safe_edit_text(callback.message, tx(user, "EVENT_NO_MORE"), redis=redis)
-    schedule_delete(sent, delay=3)
+    await edit_or_send(
+      callback.message,
+      tx(user, "EVENT_NO_MORE"),
+      redis=redis,
+      edit=False,
+      keep_previous=True,
+      finalize_previous=True,
+    )
     await callback.answer()
     return
   org = await get_user_by_id(session, event.organizer_id)
@@ -761,7 +768,16 @@ async def ev_next(callback: CallbackQuery, user: User, session: AsyncSession, re
       ],
     ]
   )
-  await safe_edit_media(callback.message, text, event.photo_file_id, reply_markup=kb, redis=redis)
+  await edit_or_send(
+    callback.message,
+    text,
+    photo_file_id=event.photo_file_id,
+    reply_markup=kb,
+    redis=redis,
+    edit=False,
+    keep_previous=True,
+    finalize_previous=True,
+  )
   await callback.answer()
 
 

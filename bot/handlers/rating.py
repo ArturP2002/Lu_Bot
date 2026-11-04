@@ -106,8 +106,9 @@ async def show_like_inbox_done(message: Message, user: User, *, redis: Redis | N
         t(user, "LIKE_INBOX_DONE"),
         reply_markup=like_inbox_done_kb(lang_of(user)),
         redis=redis,
-        edit=True,
+        edit=False,
         track=True,
+        keep_previous=True,
     )
 
 
@@ -150,8 +151,10 @@ async def show_next_inbox_profile(
         media=get_profile_media(profile),
         reply_markup=rate_card_kb(profile.id, lang_of(user)),
         redis=redis,
-        edit=edit,
+        edit=False,
         track=True,
+        keep_previous=True,
+        finalize_previous=finalize_previous or bool(edit),
     )
 
 
@@ -207,7 +210,15 @@ async def show_next_profile(
             user.city,
             user.feed_exhausted,
         )
-        await edit_or_send(message, t(user, "RATE_EMPTY"), redis=redis, edit=edit, track=True)
+        await edit_or_send(
+            message,
+            t(user, "RATE_EMPTY"),
+            redis=redis,
+            edit=False,
+            track=True,
+            keep_previous=True,
+            finalize_previous=finalize_previous,
+        )
         return
     from services.event_service import sync_events_organized
 
@@ -220,8 +231,10 @@ async def show_next_profile(
         media=get_profile_media(target),
         reply_markup=kb,
         redis=redis,
-        edit=edit,
+        edit=False,
         track=True,
+        keep_previous=True,
+        finalize_previous=finalize_previous,
     )
 
 

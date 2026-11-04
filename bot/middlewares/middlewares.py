@@ -162,7 +162,7 @@ class ThrottleMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: Dict[str, Any],
     ) -> Any:
-        from bot.texts.ui_labels import all_main_menu_texts
+        from bot.texts.ui_labels import resolve_menu_action
 
         obj = _unwrap_event(event)
 
@@ -179,7 +179,8 @@ class ThrottleMiddleware(BaseMiddleware):
         from_user = data.get("tg_user")
         if from_user and isinstance(obj, Message):
             text = (obj.text or "").strip()
-            if not (text.startswith("/") or text in all_main_menu_texts()):
+            is_menu = bool(text.startswith("/") or resolve_menu_action(text))
+            if not is_menu:
                 key = f"throttle:{from_user.id}"
                 if await self.redis.exists(key):
                     return None

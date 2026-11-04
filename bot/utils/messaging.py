@@ -506,6 +506,7 @@ async def send_profile_media(
   parse_mode: str | None = None,
   edit: bool = True,
   track: bool = True,
+  keep_previous: bool = False,
 ) -> Message:
   """Показать анкету: одно фото/видео или медиагруппа."""
   from services.profile_media import ProfileMedia
@@ -520,11 +521,13 @@ async def send_profile_media(
       parse_mode=parse_mode,
       edit=edit,
       track=track,
+      keep_previous=keep_previous,
     )
 
   ids = await get_ui_message_ids(redis, message.chat.id)
   can_inplace = (
     edit
+    and not keep_previous
     and message.from_user is not None
     and message.from_user.is_bot
     and len(items) == 1
@@ -547,10 +550,13 @@ async def send_profile_media(
     except Exception:
       logger.debug("inplace profile media edit failed", exc_info=True)
 
-  await delete_previous_ui(message.bot, redis, message.chat.id)
-  if edit and message.from_user and message.from_user.is_bot:
-    if message.message_id not in ids:
-      await safe_delete(message)
+  if keep_previous:
+    await strip_inline_keyboard(message)
+  else:
+    await delete_previous_ui(message.bot, redis, message.chat.id)
+    if edit and message.from_user and message.from_user.is_bot:
+      if message.message_id not in ids:
+        await safe_delete(message)
 
   return await _send_media_group_card(
     message,
@@ -711,9 +717,16 @@ async def edit_or_send(
   edit: bool = True,
   track: bool = True,
   finalize_previous: bool = False,
+  keep_previous: bool = False,
 ) -> Message:
-  """Edit текущего сообщения или отправить новый UI-экран."""
+  """Edit текущего сообщения или отправить новый UI-экран.
+
+  keep_previous=True — не удалять прошлую карточку (лента анкет/тусовок),
+  только снять с неё inline-кнопки и прислать новую.
+  """
   if media is not None:
+    if keep_previous or finalize_previous:
+      await strip_inline_keyboard(message)
     return await send_profile_media(
       message,
       text,
@@ -721,11 +734,22 @@ async def edit_or_send(
       reply_markup=reply_markup,
       redis=redis,
       parse_mode=parse_mode,
-      edit=edit,
+      edit=False if keep_previous else edit,
+      track=track,
+      keep_previous=keep_previous,
+    )
+  if (finalize_previous or keep_previous) and message.from_user and message.from_user.is_bot:
+    await strip_inline_keyboard(message)
+  if keep_previous:
+    return await send_ui(
+      message,
+      text,
+      photo_file_id=photo_file_id,
+      reply_markup=reply_markup,
+      redis=redis,
+      parse_mode=parse_mode,
       track=track,
     )
-  if finalize_previous and message.from_user and message.from_user.is_bot:
-    await strip_inline_keyboard(message)
   ids = await get_ui_message_ids(redis, message.chat.id)
   if len(ids) > 1:
     await delete_previous_ui(message.bot, redis, message.chat.id)

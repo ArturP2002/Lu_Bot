@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from bot.texts.i18n import LANGS, DEFAULT_LANG, normalize_lang, lang_of
 
 # action → lang → label
@@ -846,27 +848,51 @@ def tx(lang_or_user, key: str, **kwargs) -> str:
 
 
 def normalize_menu_text(text: str | None) -> str:
-    """Свести варианты эмодзи/пробелов для матча reply-кнопок."""
+    """Свести варианты эмодзи/пробелов/невидимых символов для матча reply-кнопок."""
     if not text:
         return ""
-    s = str(text).replace("\ufe0f", "").replace("\u200d", "")
-    # схлопнуть пробелы вокруг эмодзи в конце
+    s = str(text)
+    # zero-width / BOM / soft hyphen
+    for ch in ("\ufeff", "\u200b", "\u200c", "\u200d", "\u2060", "\ufe0f", "\u00ad"):
+        s = s.replace(ch, "")
     while "  " in s:
         s = s.replace("  ", " ")
     return s.strip()
 
 
+def menu_text_core(text: str | None) -> str:
+    """Текст кнопки без хвостовых эмодзи/знаков: «Оценивать ❤️» → «Оценивать»."""
+    s = normalize_menu_text(text)
+    # убрать хвостовые символы, которые не буквы/цифры (эмодзи, знаки)
+    return re.sub(r"[^\w]+$", "", s, flags=re.UNICODE).casefold()
+
+
+# Стабильные «корни» подписей по языкам — матчим по префиксу, игнорируя эмодзи
+_MENU_CORES: dict[str, tuple[str, ...]] = {
+    "rate": ("оценивать", "ацэньваць", "оцінювати", "бағалау"),
+    "events": ("тусовки", "тусоўкі", "тусовкалар"),
+    "profile": ("профиль", "профіль"),
+    "goals": ("цели", "мэты", "цілі", "мақсаттар"),
+    "luma": ("лу", "лума"),
+    "menu": ("меню",),
+}
+
+
 def _label_match_variants(label: str) -> set[str]:
-    """Канон + без VS16 + с пробелом перед последним символом-эмодзи."""
+    """Канон + без VS16 + с пробелом перед эмодзи."""
     base = label
     no_vs = label.replace("\ufe0f", "")
     variants = {base, no_vs, normalize_menu_text(base), normalize_menu_text(no_vs)}
     for raw in (base, no_vs):
-        # «Оценивать❤️» ↔ «Оценивать ❤️»
-        if len(raw) >= 2 and raw[-1] not in " \t":
-            spaced = f"{raw[:-1].rstrip()} {raw[-1]}"
-            variants.add(spaced)
-            variants.add(normalize_menu_text(spaced))
+        # отрезать хвостовые не-буквы и добавить варианты с/без пробела+эмодзи
+        core = re.sub(r"[^\w]+$", "", raw, flags=re.UNICODE).rstrip()
+        if not core:
+            continue
+        tail = raw[len(core) :].strip()
+        variants.add(core)
+        if tail:
+            variants.add(f"{core} {tail}")
+            variants.add(f"{core}{tail}")
         glued = raw.replace(" ", "")
         variants.add(glued)
         variants.add(normalize_menu_text(glued))
@@ -891,6 +917,24 @@ def all_main_menu_texts() -> set[str]:
     return texts
 
 
+def text_matches_menu_action(text: str | None, action: str) -> bool:
+    """Надёжный матч reply-кнопки: точное совпадение или корень без эмодзи."""
+    if not text:
+        return False
+    if text in all_menu_labels(action):
+        return True
+    norm = normalize_menu_text(text)
+    if norm in {normalize_menu_text(x) for x in all_menu_labels(action)}:
+        return True
+    core = menu_text_core(text)
+    if not core:
+        return False
+    for prefix in _MENU_CORES.get(action, ()):
+        if core == prefix or core.startswith(prefix):
+            return True
+    return False
+
+
 # Старые подписи без эмодзи — пока у пользователей не обновилась клавиатура
 _MENU_LEGACY: dict[str, set[str]] = {
     "rate": {
@@ -913,10 +957,9 @@ _MENU_LEGACY: dict[str, set[str]] = {
 
 
 def resolve_menu_action(text: str) -> str | None:
-    norm = normalize_menu_text(text)
-    for action in MENU:
-        candidates = {normalize_menu_text(x) for x in all_menu_labels(action)}
-        if text in all_menu_labels(action) or norm in candidates:
+    """Определить action reply-кнопки по тексту (с учётом эмодзи-вариантов)."""
+    for action in ("rate", "events", "profile", "goals", "luma", "menu"):
+        if text_matches_menu_action(text, action):
             return action
     return None
 
